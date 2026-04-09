@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>汉堡工坊 (Burger Agent Builder)</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- 引入 Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 左侧界面：配置工坊 -->
+        <div class="panel builder-panel" id="builder-panel">
+            <h1 class="glow-text">🍔 Burger Builder</h1>
+            <p class="subtitle">组装您的专属大模型特工</p>
+
+            <div class="ingredient-config">
+                <div class="form-group glass-box neon-yellow">
+                    <label><span>🧀</span> 芝士切片 (系统提示词 / System Prompt)</label>
+                    <textarea id="cheese-prompt" rows="3" placeholder="例如：你是一个幽默的脱口秀演员..."></textarea>
+                </div>
+
+                <div class="form-group glass-box neon-red">
+                    <label><span>🥩</span> 多汁肉饼 (大模型选择 / LLM)</label>
+                    <select id="meat-model">
+                        <option value="qwen-plus">Qwen-Plus (默认推荐)</option>
+                        <option value="qwen-max">Qwen-Max (最强模型)</option>
+                        <option value="qwen-turbo">Qwen-Turbo (极速模型)</option>
+                    </select>
+                </div>
+
+                <div class="form-group glass-box neon-green">
+                    <label><span>🥬</span> 脆爽蔬菜 (工具挂载 / Tools)</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" value="calculate_add" id="tool-calc"> 加法计算器 (Calculator)</label>
+                        <label><input type="checkbox" value="get_weather" id="tool-weather"> 天气查询 (Weather API)</label>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-primary glow-btn" id="build-btn">Serve Burger (上菜) 🚀</button>
+        </div>
+
+        <!-- 中间界面：汉堡渲染区 -->
+        <div class="panel visual-panel" id="visual-panel">
+            <div class="plate" id="plate">
+                <!-- 动态生成的汉堡层会在这里 -->
+                <div class="plate-base">🍽️</div>
+            </div>
+            <div class="loading-overlay hidden" id="loading-overlay">
+                <div class="spinner"></div>
+                <p>正在呼叫厨房制作中...</p>
+            </div>
+        </div>
+
+        <!-- 右侧界面：对话测试区 -->
+        <div class="panel chat-panel hidden" id="chat-panel">
+            <h2 class="glow-text">🤖 Tasting Room (品尝室)</h2>
+            <div class="chat-box" id="chat-box">
+                <div class="message system">您的高级汉堡特工已就绪，请吩咐！</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="输入你想测试的话题..." autocomplete="off">
+                <button class="btn-send" id="send-btn">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗通知 -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
