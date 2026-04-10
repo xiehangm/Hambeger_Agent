@@ -1,139 +1,272 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const buildBtn = document.getElementById('build-btn');
-    const plate = document.getElementById('plate');
-    const loadingOverlay = document.getElementById('loading-overlay');
-    
-    // Panels
-    const visualPanel = document.getElementById('visual-panel');
-    const chatPanel = document.getElementById('chat-panel');
-    
-    // Inputs
-    const cheesePrompt = document.getElementById('cheese-prompt');
-    const meatModel = document.getElementById('meat-model');
-    const toolCalc = document.getElementById('tool-calc');
-    const toolWeather = document.getElementById('tool-weather');
-    
-    // Chat
-    const chatInput = document.getElementById('chat-input');
-    const sendBtn = document.getElementById('send-btn');
-    const chatBox = document.getElementById('chat-box');
+/**
+ * app.js — 主应用逻辑
+ * 初始化画布、绑定 UI 事件、管理属性面板和 JSON 输出
+ */
+window.BurgerGame = window.BurgerGame || {};
 
-    // Toast
-    const toast = document.getElementById('toast');
-    
-    function showToast(msg, duration=3000) {
-        toast.textContent = msg;
-        toast.classList.remove('hidden');
-        setTimeout(() => toast.classList.add('hidden'), duration);
-    }
-    
-    // 搭建汉堡动画
-    async function animateBuildingBurger(hasCheese, hasVeg) {
-        plate.innerHTML = '<div class="plate-base">🍽️</div>'; // clear
-        
-        const layers = [];
-        layers.push({ cls: 'layer-bottom-bread', text: '底层面包' });
-        
-        if (hasVeg) layers.push({ cls: 'layer-veg', text: '蔬菜 (Tools)' });
-        layers.push({ cls: 'layer-meat', text: '肉饼 (LLM)' });
-        if (hasCheese) layers.push({ cls: 'layer-cheese', text: '芝士 (Prompt)' });
-        
-        layers.push({ cls: 'layer-top-bread', text: '顶层面包' });
+(function () {
+    'use strict';
 
-        for (let i = 0; i < layers.length; i++) {
-            const div = document.createElement('div');
-            div.className = `burger-layer ${layers[i].cls}`;
-            div.textContent = layers[i].text;
-            plate.appendChild(div);
-            // 简单的延时堆叠效果
-            await new Promise(r => setTimeout(r, 400));
-        }
+    let canvas = null;
+
+    // =========================================================
+    //  初始化
+    // =========================================================
+    function init() {
+        canvas = new BurgerGame.BurgerCanvas('canvas-container');
+        canvas.init();
+
+        bindSidebarEvents();
+        bindServeButton();
+        bindClearButton();
+        bindCanvasCallbacks();
+
+        // 默认隐藏右侧面板 (通过 CSS class)
+        updateLayerCount(0);
     }
 
-    buildBtn.addEventListener('click', async () => {
-        const config = {
-            cheese_prompt: cheesePrompt.value.trim() || undefined,
-            meat_model: meatModel.value,
-            vegetables: []
-        };
-        if (toolCalc.checked) config.vegetables.push('calculate_add');
-        if (toolWeather.checked) config.vegetables.push('get_weather');
-
-        // Play animation visually first
-        await animateBuildingBurger(!!config.cheese_prompt, config.vegetables.length > 0);
-        
-        // Show loading and call API
-        loadingOverlay.classList.remove('hidden');
-        
-        try {
-            const res = await fetch('/api/build', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+    // =========================================================
+    //  侧边栏食材按钮
+    // =========================================================
+    function bindSidebarEvents() {
+        const cards = document.querySelectorAll('.ingredient-card');
+        cards.forEach((card) => {
+            card.addEventListener('click', () => {
+                const type = card.dataset.type;
+                if (type) {
+                    canvas.addIngredient(type);
+                    // 按钮点击反馈
+                    card.style.transform = 'translateX(4px) scale(0.96)';
+                    setTimeout(() => {
+                        card.style.transform = '';
+                    }, 150);
+                    showToast(`已添加 ${BurgerGame.IngredientTypes[type].name}`, 'info');
+                }
             });
-            const data = await res.json();
-            
-            if (res.ok) {
-                showToast('🍔 汉堡制作完成！');
+        });
+    }
+
+    // =========================================================
+    //  上菜按钮
+    // =========================================================
+    function bindServeButton() {
+        const btn = document.getElementById('btn-serve');
+        btn.addEventListener('click', () => {
+            if (canvas.layers.length === 0) {
+                showToast('请先添加一些食材！', 'error');
+                return;
+            }
+
+            const json = canvas.exportJSON();
+
+            // 播放动画
+            canvas.playServeAnimation(() => {
+                // 显示 JSON
+                showJSONPreview(json);
+                showRightPanel();
+                showToast('🍔 汉堡搭建完成！跳转到聊天界面...', 'success');
+
+                // 切换到聊天视图
                 setTimeout(() => {
-                    // Switch interface
-                    chatPanel.classList.remove('hidden');
-                    // auto scroll to bottom
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                }, 1000);
-            } else {
-                showToast(`❌ 制作失败: ${data.detail || '未知错误'}`);
-            }
-        } catch (err) {
-            showToast('❌ 网络请求失败，请检查服务器是否开启。');
-        } finally {
-            loadingOverlay.classList.add('hidden');
-        }
-    });
-
-    // Chat function
-    async function sendMessage() {
-        const text = chatInput.value.trim();
-        if(!text) return;
-        
-        // Append user msg
-        const userDiv = document.createElement('div');
-        userDiv.className = 'message user';
-        userDiv.textContent = text;
-        chatBox.appendChild(userDiv);
-        
-        chatInput.value = '';
-        chatBox.scrollTop = chatBox.scrollHeight;
-        
-        // Append loading msg
-        const agentDiv = document.createElement('div');
-        agentDiv.className = 'message agent';
-        agentDiv.textContent = '... (思考中/嚼汉堡中)';
-        chatBox.appendChild(agentDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
-
-        try {
-            const res = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text })
+                    BurgerGame.Chat.switchToChatView(json);
+                }, 600);
             });
-            const data = await res.json();
-            
-            if (res.ok) {
-                agentDiv.textContent = data.reply;
-            } else {
-                agentDiv.textContent = `❌ ${data.detail || '错误'}`;
-                agentDiv.style.color = 'red';
-            }
-        } catch (err) {
-            agentDiv.textContent = '❌ 通讯故障';
-        }
-        chatBox.scrollTop = chatBox.scrollHeight;
+        });
     }
 
-    sendBtn.addEventListener('click', sendMessage);
-    chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
-    });
-});
+    // =========================================================
+    //  清空按钮
+    // =========================================================
+    function bindClearButton() {
+        const btn = document.getElementById('btn-clear');
+        btn.addEventListener('click', () => {
+            if (canvas.layers.length === 0) return;
+            canvas.clearAll();
+            hideRightPanel();
+            clearJSONPreview();
+            showToast('画布已清空', 'info');
+        });
+    }
+
+    // =========================================================
+    //  画布回调
+    // =========================================================
+    function bindCanvasCallbacks() {
+        canvas.onSelectIngredient = (layer) => {
+            showPropertyPanel(layer);
+            showRightPanel();
+        };
+
+        canvas.onDeselectAll = () => {
+            hidePropertyEditor();
+        };
+
+        canvas.onLayerCountChange = (count) => {
+            updateLayerCount(count);
+        };
+    }
+
+    // =========================================================
+    //  属性面板
+    // =========================================================
+    function showPropertyPanel(layer) {
+        const panel = document.getElementById('property-editor');
+        const title = document.getElementById('prop-title');
+        const content = document.getElementById('prop-content');
+
+        // 清空
+        content.innerHTML = '';
+
+        const meta = layer.meta;
+        title.textContent = `${meta.emoji} ${meta.name} 属性`;
+
+        if (!meta.configurable) {
+            content.innerHTML = `
+                <div style="color: var(--text-muted); font-size: 0.85rem; padding: 12px 0;">
+                    此食材无可配置项
+                </div>`;
+            panel.style.display = 'block';
+            return;
+        }
+
+        // 根据类型生成编辑面板
+        if (meta.id === 'cheese') {
+            content.innerHTML = `
+                <div class="prop-group">
+                    <label>系统提示词 (System Prompt)</label>
+                    <textarea id="prop-cheese-prompt" rows="4" placeholder="例如：你是一个幽默的脱口秀演员...">${layer.config.prompt || ''}</textarea>
+                </div>`;
+            // 绑定输入
+            setTimeout(() => {
+                const ta = document.getElementById('prop-cheese-prompt');
+                ta.addEventListener('input', () => {
+                    layer.config.prompt = ta.value;
+                });
+            }, 10);
+        }
+
+        if (meta.id === 'meat_patty') {
+            const models = [
+                { value: 'qwen-plus', label: 'Qwen-Plus (默认推荐)' },
+                { value: 'qwen-max', label: 'Qwen-Max (最强模型)' },
+                { value: 'qwen-turbo', label: 'Qwen-Turbo (极速模型)' },
+            ];
+            const optionsHtml = models
+                .map((m) => `<option value="${m.value}" ${layer.config.model === m.value ? 'selected' : ''}>${m.label}</option>`)
+                .join('');
+            content.innerHTML = `
+                <div class="prop-group">
+                    <label>大语言模型选择</label>
+                    <select id="prop-meat-model">${optionsHtml}</select>
+                </div>`;
+            setTimeout(() => {
+                const sel = document.getElementById('prop-meat-model');
+                sel.addEventListener('change', () => {
+                    layer.config.model = sel.value;
+                });
+            }, 10);
+        }
+
+        if (meta.id === 'lettuce') {
+            const tools = [
+                { value: 'calculate_add', label: '🧮 加法计算器 (Calculator)' },
+                { value: 'get_weather', label: '🌤️ 天气查询 (Weather API)' },
+            ];
+            const checksHtml = tools
+                .map((t) => {
+                    const checked = (layer.config.tools || []).includes(t.value) ? 'checked' : '';
+                    return `<label><input type="checkbox" value="${t.value}" ${checked}> ${t.label}</label>`;
+                })
+                .join('');
+            content.innerHTML = `
+                <div class="prop-group">
+                    <label>工具挂载 (Tools)</label>
+                    <div class="tool-checkbox-group" id="prop-lettuce-tools">${checksHtml}</div>
+                </div>`;
+            setTimeout(() => {
+                const group = document.getElementById('prop-lettuce-tools');
+                group.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+                    cb.addEventListener('change', () => {
+                        const checked = [];
+                        group.querySelectorAll('input[type="checkbox"]:checked').forEach((c) => {
+                            checked.push(c.value);
+                        });
+                        layer.config.tools = checked;
+                    });
+                });
+            }, 10);
+        }
+
+        panel.style.display = 'block';
+    }
+
+    function hidePropertyEditor() {
+        const panel = document.getElementById('property-editor');
+        panel.style.display = 'none';
+    }
+
+    // =========================================================
+    //  右侧面板显示/隐藏
+    // =========================================================
+    function showRightPanel() {
+        document.getElementById('right-panel').classList.add('visible');
+    }
+
+    function hideRightPanel() {
+        document.getElementById('right-panel').classList.remove('visible');
+    }
+
+    // =========================================================
+    //  JSON 预览
+    // =========================================================
+    function showJSONPreview(json) {
+        const el = document.getElementById('json-output');
+        el.textContent = JSON.stringify(json, null, 2);
+    }
+
+    function clearJSONPreview() {
+        const el = document.getElementById('json-output');
+        el.textContent = '';
+    }
+
+    // =========================================================
+    //  图层计数
+    // =========================================================
+    function updateLayerCount(count) {
+        const el = document.getElementById('layer-count');
+        if (el) {
+            el.innerHTML = `当前层数: <strong>${count}</strong>`;
+        }
+        // 控制上菜按钮状态
+        const btn = document.getElementById('btn-serve');
+        btn.disabled = count === 0;
+    }
+
+    // sendToBackend 已迁移到 chat.js 中处理
+
+    // =========================================================
+    //  Toast 通知
+    // =========================================================
+    function showToast(message, type) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type;
+
+        // 触发动画
+        requestAnimationFrame(() => {
+            toast.classList.add('visible');
+        });
+
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => {
+            toast.classList.remove('visible');
+        }, 2500);
+    }
+
+    // =========================================================
+    //  启动
+    // =========================================================
+    window.addEventListener('DOMContentLoaded', init);
+
+    BurgerGame.showToast = showToast;
+})();

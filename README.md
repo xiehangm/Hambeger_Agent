@@ -1,70 +1,213 @@
-# 🍔 Hamburger Agent Web Framework
+# 🍔 Hamburger Agent — 可视化 AI Agent 搭建工坊
 
-欢迎来到 **Hamburger Agent Web Framework (汉堡特工工坊)**！这是一个富有极高美学与科技感（深空霓虹 + 玻璃质感）的 Web UI 框架。
-由于大型语言模型 (LLM) 和 Agent 工具搭建的过程非常类似于“叠加汉堡的食材”，我们在本项目中通过生动有趣的 “做汉堡” 模式，让大模型的装配更易懂、更直观、也更好玩！
+> **像做汉堡一样搭建你的 AI Agent！**
+>
+> 一个全栈可视化 Agent 构建平台——通过拖拽食材组装汉堡的方式，零代码完成 LLM Agent 的搭建、测试与导出。
 
-## 📦 项目组件解析
+---
 
-整个架构基于 `langchain` 与 `langgraph` 进行底层驱动，后端使用了极速的 `FastAPI`，前端采用无污染纯净（Vanilla）代码：
+## ✨ 项目亮点
 
-| 组件 / “食材” | 对应到 LLM 领域的概念 | 说明 |
-| :---: | :--- | :--- |
-| **Top Bread (顶层)** | 输入拦截器 / 预处理 | 接管来自外部的文本输入，并化为标准信息状态 |
-| **Bottom Bread (底层)**| 结果输出器 / 解析器 | 拦截最后的 AIMessage 并抽离返回结果 |
-| **Cheese (芝士)**   | Prompt / 系统提示词 | 指导 Agent “你是一个怎样的厨师/专家” |
-| **Meat Patty (肉饼)** | Core LLM / 推理底座    | 思考的大脑！本系统默认对接了阿里云百炼 (qwen-plus) |
-| **Vegetable (蔬菜)**| Tools / 外部工具      | 连接真实世界的能力，例如天气查询工具、计算器等 |
+- 🎮 **PixiJS 驱动的可视化画布** — 拖拽食材搭建汉堡，所见即所得
+- 💬 **内置实时聊天测试** — 搭建完成后即刻进入"品尝室"试用 Agent
+- 📥 **一键导出完整后端项目** — 服务端生成 ZIP 压缩包，解压即可独立运行
+- 🧩 **模块化食材 = Agent 组件** — 每个食材映射到 LLM 领域的核心概念
+- 🌌 **深空霓虹 + 玻璃质感 UI** — 高级美学设计，科技感拉满
 
-## 🚀 快速启动指南
+---
 
-### 1. 安装项目环境依赖
-请在项目根目录使用虚拟环境（推荐）进行安装：
+## 🧀 食材 ↔ Agent 组件映射
+
+| 食材 | Agent 概念 | 职责 |
+|:---:|:---|:---|
+| 🍞 **顶部面包** (Top Bread) | 输入预处理器 | 接收用户原始输入，转化为标准消息格式 |
+| 🧀 **芝士片** (Cheese) | 系统提示词 (System Prompt) | 定义 Agent 的角色和行为指导 |
+| 🥩 **肉饼** (Meat Patty) | 大语言模型 (LLM) | Agent 的核心大脑，负责推理与决策 |
+| 🥬 **生菜** (Lettuce) | 工具挂载 (Tools) | 连接外部能力：天气查询、计算器等 |
+| 🍅 **番茄** (Tomato) | 装饰层 | 可扩展的附加组件 |
+| 🍞 **底部面包** (Bottom Bread) | 输出处理器 | 提取最终结果并返回给用户 |
+
+底层架构基于 **LangChain** + **LangGraph** 构建状态图驱动的 Agent 工作流。
+
+---
+
+## 🚀 快速启动
+
+### 1. 克隆项目 & 创建虚拟环境
+
 ```bash
-python -m venv venv
-# 激活环境 (Windows)
-.\venv\Scripts\activate
-# 或者 MacOS/Linux: source venv/bin/activate
+git clone <your-repo-url>
+cd Agent_hambeger
 
+python -m venv venv
+# Windows
+.\venv\Scripts\activate
+# macOS / Linux
+source venv/bin/activate
+```
+
+### 2. 安装依赖
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. 配置您的环境变量 (非常重要！)
-请在主目录下找到并复制一份模板配置文件：
-> `.env.example` -> `.env`
+### 3. 配置环境变量
 
-打开 `.env` 文件，填入您的**阿里云千问 API Key** (支持同体系的 OpenAI 兼容模式)：
+复制模板文件并填入你的 API Key：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入阿里云百炼 (DashScope) 的 API Key：
+
 ```env
-# 在这里填入真实的阿里云 DashScope Key
-DASHSCOPE_API_KEY=sk-xxxxxx
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MODEL=qwen-plus
 ```
 
-### 3. 上菜！运行全栈系统
-确保依赖安装并激活环境后，在终端运行服务器：
+> 💡 本项目使用 OpenAI 兼容模式调用千问系列模型，也可替换为任何兼容 OpenAI API 格式的模型服务。
+
+### 4. 启动服务
+
 ```bash
 python server.py
 ```
-> 服务器此时将静默启动在 `http://127.0.0.1:8000`
 
-### 4. 品尝您的汉堡大模型
-在任意浏览器中打开👉 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**：
-1. **Build Your Burger（配置汉堡）**：在左侧面板选择要加入的提示词、大模型类型以及挂载的工具。
-2. 点击 **「Serve Burger」** 可以观赏生动的汉堡层叠坠落动画 🍔。
-3. 进入 **Tasting Room（品尝室）** 测试对话！
-
-## 🗺️ 未来愿景与路线图 (Roadmap)
-
-我们的最终目标是将 **Hamburger Agent Framework** 打造为一个**完全开源的、基于拖拽式的低代码 (Low-Code/No-Code) Agent 构建平台**。让任何人都可以像玩游戏一样轻松构建强大的大语言模型图流！
-在后期的版本更新中，我们计划进行以下激动人心的演进：
-
-- [ ] **真实的可视化拖拽画布 (Drag & Drop)**：引入类似 Web Flow 的画布体系。您可以直接把“芝士”、“肉饼”、“蔬菜工具”从左侧物料栏拖入盘子，直观调整顺序并完成装配。
-- [ ] **开源的“食材”插件生态 (Plugin Ecosystem)**：允许社区所有开发者贡献自己编写的 Tool（各种蔬菜）或独特的 Prompt（酱汁），建立海量的插件市场供一键装配。
-- [ ] **多模态与流式处理能力 (Multimodal Breads)**：拓展顶底面包的吸收能力，使其能够接受图片、文件、甚至是语音作为输入流。
-- [ ] **复杂网状工作流 (Agentic Workflows)**：从单列汉堡升级为“自助餐盘”：支持创建条件分支（例如：判断如果是天气问题送往 A 肉饼处理，否则送往 B 肉饼）。
-
-如果您对这个开源构想感兴趣，强烈欢迎加入我们，随时提交 Pull Request，一起颠覆大模型智能体的搭建体验！👏
+打开浏览器访问 👉 **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
 
 ---
-## ✨ 安全与分享须知
-本项目中含有大模型的机密 API 配置。但请放心：目前您的 `__pycache__`、虚拟环境 `.venv/` 以及包含密码凭证的 `.env` 已被包含在 `.gitignore` 保护区内，绝不会被带入代码版本库或错误地上传给其他人！
+
+## 🎮 使用流程
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  1. 选择食材  │ ──► │ 2. 拖拽排列   │ ──► │ 3. 上菜！     │
+│  从左侧面板   │     │  画布中搭建   │     │  构建 Agent   │
+└──────────────┘     └──────────────┘     └──────────────┘
+                                                │
+                    ┌──────────────┐     ┌──────┴───────┐
+                    │ 5. 下载后端   │ ◄── │ 4. 品尝测试   │
+                    │  导出 ZIP    │     │  实时聊天     │
+                    └──────────────┘     └──────────────┘
+```
+
+1. **选择食材** — 在左侧侧边栏点击食材卡片，添加到中央画布
+2. **拖拽排列** — 在 PixiJS 画布中拖曳食材，调整汉堡的层叠顺序
+3. **上菜构建** — 点击「🚀 上菜 · Serve Burger」按钮，右侧面板展示实时 JSON 配置
+4. **品尝测试** — 进入聊天界面，立即与你搭建的 Agent 对话交互
+5. **下载后端** — 点击「📥 下载后端」，服务端生成完整可运行的 Python 项目 ZIP 包
+
+---
+
+## 🔧 API 接口
+
+| 方法 | 路径 | 说明 |
+|:-----|:-----|:-----|
+| `GET` | `/` | 前端主页面 |
+| `POST` | `/api/build` | 根据前端配置构建 Agent 实例 |
+| `POST` | `/api/chat` | 发送消息并获取 Agent 回复 |
+| `POST` | `/api/download` | 服务端生成项目 ZIP 并返回下载 |
+
+### 请求示例
+
+```bash
+# 构建 Agent
+curl -X POST http://127.0.0.1:8000/api/build \
+  -H "Content-Type: application/json" \
+  -d '{"cheese_prompt": "你是一个美食专家", "meat_model": "qwen-plus", "vegetables": ["get_weather"]}'
+
+# 与 Agent 对话
+curl -X POST http://127.0.0.1:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好！"}'
+
+# 下载项目
+curl -X POST http://127.0.0.1:8000/api/download \
+  -H "Content-Type: application/json" \
+  -d '{"cheese_prompt": "你是一个美食专家", "meat_model": "qwen-plus", "vegetables": []}' \
+  -o burger_agent_project.zip
+```
+
+---
+
+## 📁 项目结构
+
+```
+Agent_hambeger/
+├── .env.example              # 环境变量模板
+├── .gitignore                # Git 忽略规则
+├── requirements.txt          # Python 依赖
+├── README.md                 # 本文档
+├── server.py                 # FastAPI 全栈服务（API + 静态文件 + ZIP 下载）
+├── example.py                # 独立运行的命令行示例
+│
+├── hamburger/                # 🍔 Agent 框架核心模块
+│   ├── __init__.py
+│   ├── builder.py            # HamburgerBuilder — LangGraph 状态图构建器
+│   ├── state.py              # HamburgerState — Agent 全局状态定义
+│   └── ingredients/          # 食材组件包
+│       ├── __init__.py
+│       ├── base.py           # HamburgerIngredient — 食材抽象基类
+│       ├── bread.py          # TopBread / BottomBread — 输入输出处理
+│       ├── cheese.py         # Cheese — 系统提示词注入
+│       ├── meat.py           # MeatPatty — LLM 调用核心
+│       └── vegetable.py      # Vegetable — 工具调用执行 (ToolNode)
+│
+└── web/                      # 🌐 前端界面
+    ├── index.html            # 主页面（搭建视图 + 聊天视图）
+    ├── css/
+    │   └── style.css         # 深空霓虹主题样式
+    └── js/
+        ├── app.js            # 应用入口与全局控制
+        ├── ingredients.js    # 食材定义与 PixiJS 绘制
+        ├── burger.js         # 汉堡画布渲染与拖拽交互
+        ├── chat.js           # 聊天界面控制器
+        └── codegen.js        # Python 代码模板（用于展示预览）
+```
+
+---
+
+## 🧰 技术栈
+
+| 层级 | 技术 |
+|:-----|:-----|
+| **前端渲染** | [PixiJS v7](https://pixijs.com/) — WebGL 2D 渲染引擎 |
+| **前端样式** | Vanilla CSS — 玻璃质感 (Glassmorphism) + 深空霓虹配色 |
+| **后端框架** | [FastAPI](https://fastapi.tiangolo.com/) — 高性能异步 Python Web 框架 |
+| **Agent 框架** | [LangGraph](https://github.com/langchain-ai/langgraph) — 状态图驱动的 Agent 编排 |
+| **LLM 接入** | [LangChain OpenAI](https://python.langchain.com/) — 兼容千问 / OpenAI API |
+| **ZIP 打包** | Python `zipfile` — 服务端生成，确保跨浏览器兼容 |
+
+---
+
+## 🗺️ 路线图 (Roadmap)
+
+- [x] PixiJS 可视化拖拽搭建画布
+- [x] 实时聊天测试界面（品尝室）
+- [x] 服务端一键导出完整后端项目 ZIP
+- [ ] 更多内置工具/食材（数据库查询、网络搜索、代码执行等）
+- [ ] 食材插件生态 — 社区贡献自定义 Tool / Prompt
+- [ ] 多模态输入支持（图片、文件、语音）
+- [ ] 复杂分支工作流（条件路由、并行执行）
+- [ ] 对话历史持久化与会话管理
+
+---
+
+## 🔒 安全须知
+
+- `.env` 文件包含 API Key 等敏感信息，**已列入 `.gitignore`**，不会被提交到版本库
+- `__pycache__/`、`venv/` 等自动生成目录同样被忽略
+- 分享项目时请确保使用 `.env.example` 作为配置模板，**切勿将真实 Key 提交到公开仓库**
+
+---
+
+## 📄 License
+
+MIT
+
+---
+
+> 🍔 *Like building a burger, but you're building an AI Agent.*

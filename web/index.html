@@ -3,74 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>汉堡工坊 (Burger Agent Builder)</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <!-- 引入 Google Fonts -->
+    <title>🍔 汉堡搭建工坊 — Burger Builder</title>
+    <meta name="description" content="使用 PixiJS 驱动的可视化汉堡搭建游戏，拖曳食材组装你的专属 AI Agent 汉堡">
+
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- 左侧界面：配置工坊 -->
-        <div class="panel builder-panel" id="builder-panel">
-            <h1 class="glow-text">🍔 Burger Builder</h1>
-            <p class="subtitle">组装您的专属大模型特工</p>
 
-            <div class="ingredient-config">
-                <div class="form-group glass-box neon-yellow">
-                    <label><span>🧀</span> 芝士切片 (系统提示词 / System Prompt)</label>
-                    <textarea id="cheese-prompt" rows="3" placeholder="例如：你是一个幽默的脱口秀演员..."></textarea>
-                </div>
+    <!-- ====================================================================
+         VIEW 1: 搭建视图 (Build View)
+    ==================================================================== -->
+    <div class="app-container" id="build-view">
 
-                <div class="form-group glass-box neon-red">
-                    <label><span>🥩</span> 多汁肉饼 (大模型选择 / LLM)</label>
-                    <select id="meat-model">
-                        <option value="qwen-plus">Qwen-Plus (默认推荐)</option>
-                        <option value="qwen-max">Qwen-Max (最强模型)</option>
-                        <option value="qwen-turbo">Qwen-Turbo (极速模型)</option>
-                    </select>
-                </div>
+        <!-- ========== 左侧侧边栏 — 食材面板 ========== -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1>🍔 Burger Builder</h1>
+                <p class="subtitle">点击食材添加到画布，拖曳排列搭建汉堡</p>
+            </div>
 
-                <div class="form-group glass-box neon-green">
-                    <label><span>🥬</span> 脆爽蔬菜 (工具挂载 / Tools)</label>
-                    <div class="checkbox-group">
-                        <label><input type="checkbox" value="calculate_add" id="tool-calc"> 加法计算器 (Calculator)</label>
-                        <label><input type="checkbox" value="get_weather" id="tool-weather"> 天气查询 (Weather API)</label>
+            <div class="sidebar-ingredients" id="sidebar-ingredients">
+                <!-- 面包类 -->
+                <div class="ingredient-card" data-type="top_bread" id="card-top-bread">
+                    <div class="ingredient-icon">🍞</div>
+                    <div class="ingredient-info">
+                        <div class="name">顶部面包</div>
+                        <div class="desc">Top Bun · 输入处理层</div>
                     </div>
+                    <span class="add-icon">＋</span>
+                </div>
+
+                <div class="ingredient-card" data-type="cheese" id="card-cheese">
+                    <div class="ingredient-icon">🧀</div>
+                    <div class="ingredient-info">
+                        <div class="name">芝士片</div>
+                        <div class="desc">Cheese · 系统提示词</div>
+                    </div>
+                    <span class="add-icon">＋</span>
+                </div>
+
+                <div class="ingredient-card" data-type="meat_patty" id="card-meat">
+                    <div class="ingredient-icon">🥩</div>
+                    <div class="ingredient-info">
+                        <div class="name">肉饼</div>
+                        <div class="desc">Patty · 大语言模型 (LLM)</div>
+                    </div>
+                    <span class="add-icon">＋</span>
+                </div>
+
+                <div class="ingredient-card" data-type="lettuce" id="card-lettuce">
+                    <div class="ingredient-icon">🥬</div>
+                    <div class="ingredient-info">
+                        <div class="name">生菜</div>
+                        <div class="desc">Lettuce · 工具挂载 (Tools)</div>
+                    </div>
+                    <span class="add-icon">＋</span>
+                </div>
+
+                <div class="ingredient-card" data-type="tomato" id="card-tomato">
+                    <div class="ingredient-icon">🍅</div>
+                    <div class="ingredient-info">
+                        <div class="name">番茄</div>
+                        <div class="desc">Tomato · 装饰层</div>
+                    </div>
+                    <span class="add-icon">＋</span>
+                </div>
+
+                <div class="ingredient-card" data-type="bottom_bread" id="card-bottom-bread">
+                    <div class="ingredient-icon">🍞</div>
+                    <div class="ingredient-info">
+                        <div class="name">底部面包</div>
+                        <div class="desc">Bottom Bun · 输出处理层</div>
+                    </div>
+                    <span class="add-icon">＋</span>
                 </div>
             </div>
 
-            <button class="btn-primary glow-btn" id="build-btn">Serve Burger (上菜) 🚀</button>
+            <div class="sidebar-footer">
+                <div class="layer-count" id="layer-count">当前层数: <strong>0</strong></div>
+                <button class="btn-serve" id="btn-serve" disabled>🚀 上菜 · Serve Burger</button>
+                <button class="btn-clear" id="btn-clear">🗑️ 清空画布</button>
+            </div>
+        </aside>
+
+        <!-- ========== 中央 — PixiJS 画布 ========== -->
+        <main class="canvas-area" id="canvas-area">
+            <div id="canvas-container"></div>
+        </main>
+
+        <!-- ========== 右侧面板 — 属性编辑 + JSON 预览 ========== -->
+        <aside class="right-panel" id="right-panel">
+            <!-- 属性编辑区 -->
+            <div class="panel-section" id="property-editor" style="display: none;">
+                <h2 id="prop-title">🔧 属性编辑 <span class="badge">CONFIG</span></h2>
+                <div id="prop-content">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <!-- JSON 预览区 -->
+            <div class="json-preview-area">
+                <h2>📦 JSON 数据 <span class="badge" style="background: rgba(46,204,113,0.2); color: #2ecc71;">OUTPUT</span></h2>
+                <div class="json-output" id="json-output"></div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- ====================================================================
+         VIEW 2: 聊天视图 (Chat View) — "吃汉堡"
+    ==================================================================== -->
+    <div class="chat-view" id="chat-view">
+        <!-- 顶部导航栏 -->
+        <header class="chat-header">
+            <div class="chat-header-left">
+                <button class="chat-btn-icon" id="chat-back-btn" title="返回搭建">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <div class="chat-title">
+                    <h1>🍽️ 品尝汉堡</h1>
+                    <div class="chat-config-summary" id="chat-config-summary"></div>
+                </div>
+            </div>
+            <div class="chat-header-right">
+                <span class="chat-status status-connecting" id="chat-status">🔄 连接中...</span>
+                <button class="chat-btn-download" id="chat-download-btn">📥 下载后端</button>
+            </div>
+        </header>
+
+        <!-- 消息区域 -->
+        <div class="chat-messages" id="chat-messages">
+            <!-- 消息由 JS 动态生成 -->
         </div>
 
-        <!-- 中间界面：汉堡渲染区 -->
-        <div class="panel visual-panel" id="visual-panel">
-            <div class="plate" id="plate">
-                <!-- 动态生成的汉堡层会在这里 -->
-                <div class="plate-base">🍽️</div>
+        <!-- 输入区域 -->
+        <div class="chat-input-bar">
+            <div class="chat-input-wrapper">
+                <textarea
+                    id="chat-input"
+                    class="chat-input"
+                    placeholder="输入消息，按 Enter 发送..."
+                    rows="1"
+                ></textarea>
+                <button class="chat-send-btn" id="chat-send-btn" title="发送">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"/>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                </button>
             </div>
-            <div class="loading-overlay hidden" id="loading-overlay">
-                <div class="spinner"></div>
-                <p>正在呼叫厨房制作中...</p>
-            </div>
-        </div>
-
-        <!-- 右侧界面：对话测试区 -->
-        <div class="panel chat-panel hidden" id="chat-panel">
-            <h2 class="glow-text">🤖 Tasting Room (品尝室)</h2>
-            <div class="chat-box" id="chat-box">
-                <div class="message system">您的高级汉堡特工已就绪，请吩咐！</div>
-            </div>
-            <div class="chat-input-area">
-                <input type="text" id="chat-input" placeholder="输入你想测试的话题..." autocomplete="off">
-                <button class="btn-send" id="send-btn">发送</button>
-            </div>
+            <p class="chat-hint">按 Enter 发送，Shift+Enter 换行 · 由汉堡 Agent 提供支持</p>
         </div>
     </div>
 
-    <!-- 弹窗通知 -->
-    <div id="toast" class="toast hidden"></div>
+    <!-- Toast 通知 -->
+    <div id="toast" class="toast"></div>
 
-    <script src="/static/js/app.js"></script>
+    <!-- ===== Scripts ===== -->
+    <!-- PixiJS v7 (Global PIXI namespace) -->
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js"></script>
+    <!-- JSZip for client-side ZIP generation -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- Game Modules -->
+    <script src="js/ingredients.js"></script>
+    <script src="js/burger.js"></script>
+    <script src="js/codegen.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/app.js"></script>
+
 </body>
 </html>
