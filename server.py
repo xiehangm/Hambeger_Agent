@@ -20,6 +20,7 @@ from hamburger import (
     MeatPatty,
     Vegetable
 )
+from hamburger.recipes import match_recipe, validate_structure
 
 # 读取环境变量
 load_dotenv()
@@ -63,8 +64,8 @@ class BuildConfig(BaseModel):
     cheese_prompt: Optional[str] = "你是一个有用的智能助手"
     meat_model: str = "qwen-plus"
     vegetables: List[str] = []
-    # 前端还会发送 burger_layers 字段，这里忽略即可
-    burger_layers: Optional[list] = None
+    burger_layers: Optional[list] = None  # 食材层次列表，用于配方识别
+    agent_type: Optional[str] = None      # 前端识别的 Agent 类型（可选验证用）
 
 class ChatRequest(BaseModel):
     message: str
@@ -73,16 +74,31 @@ class ChatRequest(BaseModel):
 @app.post("/api/build")
 async def build_burger(config: BuildConfig):
     global global_burger_agent
-    
+
+    # ---- 1. 结构验证（后端二次验证，防止绕过前端）----
+    if config.burger_layers:
+        layer_types = [layer["type"] for layer in config.burger_layers if "type" in layer]
+        struct_check = validate_structure(layer_types)
+        if not struct_check["valid"]:
+            raise HTTPException(status_code=400, detail=struct_check["error"])
+
+        # ---- 2. 配方识别 ----
+        recipe = match_recipe(layer_types)
+        agent_type = recipe["name"] if recipe else "unknown"
+        agent_label = recipe["label"] if recipe else "未知配方"
+        print(f"[Recipe] 识别到配方: {agent_label} ({agent_type})")
+    else:
+        agent_type = config.agent_type or "basic_chat"
+        agent_label = agent_type
+
     api_key = os.getenv("DASHSCOPE_API_KEY", "your-key")
     base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    
-    # 强制在没有设置的情况下提醒或者直接使用 (如果没有key会报错)
+
     if api_key == "your_api_key_here" or not api_key:
-         print("Warning: DASHSCOPE_API_KEY is not set correctly in .env!")
+        print("Warning: DASHSCOPE_API_KEY is not set correctly in .env!")
 
     try:
-        # 配置千问(通过 OpenAI SDK 兼容调用)
+        # ---- 3. 配置 LLM ----
         llm = ChatOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -90,26 +106,32 @@ async def build_burger(config: BuildConfig):
             temperature=0.7
         )
 
-        # 获取选中的工具
+        # ---- 4. 根据 Agent 类型决定食材搭配 ----
         selected_tools = [AVAILABLE_TOOLS[name] for name in config.vegetables if name in AVAILABLE_TOOLS]
-        
-        # 搭建汉堡
-        builder = HamburgerBuilder()
-        global_burger_agent = (
-            builder
-            .add_top_bread(TopBread())
-            .add_cheese(Cheese(config.cheese_prompt))
-            .add_meat_patty(MeatPatty(llm=llm, tools=selected_tools))
-            .add_bottom_bread(BottomBread())
-        )
-        
-        if selected_tools:
-            global_burger_agent.add_vegetable(Vegetable(tools=selected_tools))
 
-        global_burger_agent = global_burger_agent.build()
-        
-        print(f"[OK] Burger built! Model: {config.meat_model}, Tools: {config.vegetables}")
-        return {"status": "success", "message": "汉堡搭建成功！"}
+        builder = HamburgerBuilder()
+        builder.add_top_bread(TopBread())
+
+        if agent_type in ("guided_chat", "tool_agent"):
+            # 有芝士层 → 注入系统提示词
+            builder.add_cheese(Cheese(config.cheese_prompt))
+
+        builder.add_meat_patty(MeatPatty(llm=llm, tools=selected_tools))
+
+        if agent_type == "tool_agent" and selected_tools:
+            # 有生菜层 → 挂载工具
+            builder.add_vegetable(Vegetable(tools=selected_tools))
+
+        builder.add_bottom_bread(BottomBread())
+        global_burger_agent = builder.build()
+
+        print(f"[OK] Burger built! Type: {agent_type}, Model: {config.meat_model}, Tools: {config.vegetables}")
+        return {
+            "status": "success",
+            "message": f"汉堡搭建成功！当前配方：{agent_label}",
+            "agent_type": agent_type,
+            "agent_label": agent_label,
+        }
     except Exception as e:
         print(f"[ERROR] Build failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

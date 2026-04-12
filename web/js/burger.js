@@ -462,9 +462,24 @@ window.BurgerGame = window.BurgerGame || {};
         }
 
         // =========================================================
-        //  导出 JSON
+        //  导出 JSON（含位置验证 + 配方识别）
         // =========================================================
         exportJSON() {
+            // --- 1. 获取当前食材类型列表（从顶到底，即 layers[0] 是最上层）---
+            const layerTypes = this.layers.map((l) => l.meta.id);
+
+            // --- 2. 结构验证 ---
+            const validation = BurgerGame.Recipes.validateStructure(layerTypes);
+            if (!validation.valid) {
+                return { valid: false, error: validation.error };
+            }
+
+            // --- 3. 配方匹配 ---
+            const recipe = BurgerGame.Recipes.matchRecipe(layerTypes);
+            const agentType = recipe ? recipe.name : 'unknown';
+            const agentLabel = recipe ? recipe.label : '未知配方';
+
+            // --- 4. 生成 burger_layers ---
             const burgerLayers = this.layers.map((l, i) => {
                 const obj = { type: l.meta.id, order: i };
                 if (l.config && Object.keys(l.config).length > 0) {
@@ -473,7 +488,7 @@ window.BurgerGame = window.BurgerGame || {};
                 return obj;
             });
 
-            // 提取兼容后端的字段
+            // --- 5. 提取兼容后端的字段 ---
             let cheesePrompt = '你是一个有用的智能助手';
             let meatModel = 'qwen-plus';
             let vegetables = [];
@@ -491,11 +506,21 @@ window.BurgerGame = window.BurgerGame || {};
             });
 
             return {
+                valid: true,
+                agent_type: agentType,
+                agent_label: agentLabel,
                 cheese_prompt: cheesePrompt,
                 meat_model: meatModel,
                 vegetables: [...new Set(vegetables)],
                 burger_layers: burgerLayers,
             };
+        }
+
+        // =========================================================
+        //  获取当前食材类型列表（供外部实时查阅）
+        // =========================================================
+        getLayerTypes() {
+            return this.layers.map((l) => l.meta.id);
         }
 
         // =========================================================

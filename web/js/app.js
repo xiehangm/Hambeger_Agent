@@ -59,12 +59,21 @@ window.BurgerGame = window.BurgerGame || {};
 
             const json = canvas.exportJSON();
 
+            // 位置验证失败，不继续
+            if (!json.valid) {
+                showToast(json.error, 'error');
+                // 抖动按钮提示
+                btn.classList.add('btn-shake');
+                setTimeout(() => btn.classList.remove('btn-shake'), 500);
+                return;
+            }
+
             // 播放动画
             canvas.playServeAnimation(() => {
                 // 显示 JSON
                 showJSONPreview(json);
                 showRightPanel();
-                showToast('🍔 汉堡搭建完成！跳转到聊天界面...', 'success');
+                showToast(`🍔 ${json.agent_label} 搭建完成！跳转到聊天界面...`, 'success');
 
                 // 切换到聊天视图
                 setTimeout(() => {
@@ -103,7 +112,55 @@ window.BurgerGame = window.BurgerGame || {};
 
         canvas.onLayerCountChange = (count) => {
             updateLayerCount(count);
+            updateRecipeHint();
         };
+    }
+
+    // =========================================================
+    //  配方实时识别提示
+    // =========================================================
+    function updateRecipeHint() {
+        const hintEl = document.getElementById('recipe-hint');
+        if (!hintEl) return;
+
+        const layerTypes = canvas.getLayerTypes();
+
+        if (layerTypes.length === 0) {
+            hintEl.innerHTML = '';
+            hintEl.className = 'recipe-hint recipe-hint-empty';
+            return;
+        }
+
+        // 先做结构校验
+        const validation = BurgerGame.Recipes.validateStructure(layerTypes);
+        if (!validation.valid) {
+            hintEl.innerHTML = `<span class="recipe-icon">⚠️</span>
+                <span class="recipe-info">
+                    <span class="recipe-label">结构问题</span>
+                    <span class="recipe-desc">${validation.error.replace('❌ ', '')}</span>
+                </span>`;
+            hintEl.className = 'recipe-hint recipe-hint-warn';
+            return;
+        }
+
+        // 配方匹配
+        const recipe = BurgerGame.Recipes.matchRecipe(layerTypes);
+        if (recipe) {
+            hintEl.innerHTML = `<span class="recipe-icon">${recipe.emoji}</span>
+                <span class="recipe-info">
+                    <span class="recipe-name-tag">识别到配方</span>
+                    <span class="recipe-label">${recipe.label}</span>
+                    <span class="recipe-desc">${recipe.description}</span>
+                </span>`;
+            hintEl.className = 'recipe-hint recipe-hint-match';
+        } else {
+            hintEl.innerHTML = `<span class="recipe-icon">🔍</span>
+                <span class="recipe-info">
+                    <span class="recipe-label">未知配方</span>
+                    <span class="recipe-desc">当前食材组合不在已知配方中，仍可尝试构建</span>
+                </span>`;
+            hintEl.className = 'recipe-hint recipe-hint-unknown';
+        }
     }
 
     // =========================================================

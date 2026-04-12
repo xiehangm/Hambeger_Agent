@@ -8,6 +8,7 @@ from hamburger.ingredients import (
     Vegetable,
     HamburgerIngredient
 )
+from hamburger.recipes import match_recipe, validate_structure, RECIPES
 
 __all__ = [
     "HamburgerBuilder",
@@ -17,5 +18,8 @@ __all__ = [
     "BottomBread",
     "Cheese",
     "MeatPatty",
-    "Vegetable"
+    "Vegetable",
+    "match_recipe",
+    "validate_structure",
+    "RECIPES",
 ]

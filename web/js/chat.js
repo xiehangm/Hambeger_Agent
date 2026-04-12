@@ -74,10 +74,12 @@ window.BurgerGame = window.BurgerGame || {};
     function renderConfigSummary(json) {
         const model = json.meat_model || 'qwen-plus';
         const toolCount = (json.vegetables || []).length;
+        const agentLabel = json.agent_label || '传统 LLM 对话';
+        const agentEmoji = { tool_agent: '🤖', guided_chat: '🎯', basic_chat: '💬' }[json.agent_type] || '🍔';
         els.chatConfigSummary.innerHTML = `
+            <span class="config-chip" style="background:rgba(108,92,231,0.15);border-color:rgba(108,92,231,0.35);color:#a29bfe;">${agentEmoji} ${agentLabel}</span>
             <span class="config-chip">🥩 ${model}</span>
             ${toolCount > 0 ? `<span class="config-chip">🥬 ${toolCount} 工具</span>` : ''}
-            <span class="config-chip">🧀 自定义提示词</span>
         `;
     }
 

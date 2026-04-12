@@ -89,12 +89,40 @@
                 <div class="layer-count" id="layer-count">当前层数: <strong>0</strong></div>
                 <button class="btn-serve" id="btn-serve" disabled>🚀 上菜 · Serve Burger</button>
                 <button class="btn-clear" id="btn-clear">🗑️ 清空画布</button>
+
+                <!-- 配方指南 -->
+                <div class="recipe-guide">
+                    <div class="recipe-guide-title">📖 配方指南</div>
+                    <div class="recipe-guide-item">
+                        <span class="rg-emoji">💬</span>
+                        <span class="rg-content">
+                            <strong>传统 LLM 对话</strong>
+                            <span>顶部面包 ＋ 肉饼 ＋ 底部面包</span>
+                        </span>
+                    </div>
+                    <div class="recipe-guide-item">
+                        <span class="rg-emoji">🎯</span>
+                        <span class="rg-content">
+                            <strong>场景引导对话</strong>
+                            <span>顶部面包 ＋ 芝士 ＋ 肉饼 ＋ 底部面包</span>
+                        </span>
+                    </div>
+                    <div class="recipe-guide-item">
+                        <span class="rg-emoji">🤖</span>
+                        <span class="rg-content">
+                            <strong>工具调用 Agent</strong>
+                            <span>顶部面包 ＋ 芝士 ＋ 肉饼 ＋ 生菜 ＋ 底部面包</span>
+                        </span>
+                    </div>
+                </div>
             </div>
         </aside>
 
         <!-- ========== 中央 — PixiJS 画布 ========== -->
         <main class="canvas-area" id="canvas-area">
             <div id="canvas-container"></div>
+            <!-- 配方识别提示条 -->
+            <div id="recipe-hint" class="recipe-hint recipe-hint-empty"></div>
         </main>
 
         <!-- ========== 右侧面板 — 属性编辑 + JSON 预览 ========== -->
@@ -173,6 +201,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <!-- Game Modules -->
     <script src="js/ingredients.js"></script>
+    <script src="js/recipes.js"></script>
     <script src="js/burger.js"></script>
     <script src="js/codegen.js"></script>
     <script src="js/chat.js"></script>
