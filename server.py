@@ -118,7 +118,7 @@ async def build_burger(config: BuildConfig):
 
         builder.add_meat_patty(MeatPatty(llm=llm, tools=selected_tools))
 
-        if agent_type == "tool_agent" and selected_tools:
+        if agent_type in ("tool_agent", "default_tool_agent") and selected_tools:
             # 有生菜层 → 挂载工具
             builder.add_vegetable(Vegetable(tools=selected_tools))
 

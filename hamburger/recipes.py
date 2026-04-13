@@ -36,6 +36,14 @@ RECIPES: List[Recipe] = [
         "forbidden": [],
     },
     {
+        "name": "default_tool_agent",
+        "label": "默认工具调用 Agent",
+        "description": "使用默认提示词的工具调用 Agent，自动挂载画布上的工具",
+        "emoji": "🔧",
+        "required_set": ["top_bread", "meat_patty", "lettuce", "bottom_bread"],
+        "forbidden": ["cheese"],
+    },
+    {
         "name": "guided_chat",
         "label": "场景引导对话",
         "description": "通过芝士层注入系统提示词，针对特定场景提供专业引导式回答",
