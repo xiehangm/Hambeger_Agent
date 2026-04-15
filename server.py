@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
@@ -21,6 +21,17 @@ from hamburger import (
     Vegetable
 )
 from hamburger.recipes import match_recipe, validate_structure
+from hamburger.mcp_registry import registry_client, get_popular_servers, get_servers_by_category
+from hamburger.mcp_loader import (
+    get_builtin_servers,
+    get_installed_servers,
+    install_server,
+    uninstall_server,
+    discover_tools,
+    discover_all_installed_tools,
+    get_all_langchain_tools,
+    add_custom_server,
+)
 
 # 读取环境变量
 load_dotenv()
@@ -70,6 +81,24 @@ class BuildConfig(BaseModel):
 class ChatRequest(BaseModel):
     message: str
 
+class MCPInstallRequest(BaseModel):
+    server_id: str
+    env_values: Optional[Dict[str, str]] = None
+
+class MCPCustomServerRequest(BaseModel):
+    server_id: str
+    name: str
+    command: str
+    args: List[str] = []
+    env: Optional[Dict[str, str]] = None
+    description: str = ""
+    emoji: str = "🔌"
+    category: str = "自定义"
+
+class MCPSearchRequest(BaseModel):
+    query: str = ""
+    limit: int = 20
+
 # --- API 路由 ---
 @app.post("/api/build")
 async def build_burger(config: BuildConfig):
@@ -108,6 +137,12 @@ async def build_burger(config: BuildConfig):
 
         # ---- 4. 根据 Agent 类型决定食材搭配 ----
         selected_tools = [AVAILABLE_TOOLS[name] for name in config.vegetables if name in AVAILABLE_TOOLS]
+
+        # ---- 4b. 加载已安装的 MCP 工具 ----
+        mcp_tools = get_all_langchain_tools()
+        if mcp_tools:
+            selected_tools.extend(mcp_tools)
+            print(f"[MCP] Loaded {len(mcp_tools)} MCP tools into agent")
 
         builder = HamburgerBuilder()
         builder.add_top_bread(TopBread())
@@ -155,6 +190,63 @@ async def chat_burger(req: ChatRequest):
         return {"status": "success", "reply": output}
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- MCP 工具市场 API ---
+@app.get("/api/mcp/builtin")
+async def mcp_builtin_servers():
+    return {"servers": get_builtin_servers()}
+
+@app.get("/api/mcp/popular")
+async def mcp_popular_servers():
+    return {"servers": get_popular_servers(), "categories": get_servers_by_category()}
+
+@app.get("/api/mcp/installed")
+async def mcp_installed_servers():
+    return {"servers": get_installed_servers()}
+
+@app.post("/api/mcp/install")
+async def mcp_install_server(req: MCPInstallRequest):
+    result = install_server(req.server_id, req.env_values)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "安装失败"))
+    return result
+
+@app.post("/api/mcp/uninstall")
+async def mcp_uninstall_server(req: MCPInstallRequest):
+    result = uninstall_server(req.server_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "卸载失败"))
+    return result
+
+@app.post("/api/mcp/discover")
+async def mcp_discover_tools(req: MCPInstallRequest):
+    tools = await discover_tools(req.server_id)
+    return {"server_id": req.server_id, "tools": tools}
+
+@app.post("/api/mcp/discover-all")
+async def mcp_discover_all():
+    tools = await discover_all_installed_tools()
+    return {"tools": tools}
+
+@app.post("/api/mcp/custom")
+async def mcp_add_custom(req: MCPCustomServerRequest):
+    result = add_custom_server(
+        server_id=req.server_id,
+        name=req.name,
+        command=req.command,
+        args=req.args,
+        env=req.env,
+        description=req.description,
+        emoji=req.emoji,
+        category=req.category,
+    )
+    return result
+
+@app.post("/api/mcp/search")
+async def mcp_search_registry(req: MCPSearchRequest):
+    results = await registry_client.search_all(query=req.query, limit=req.limit)
+    return {"servers": [r.to_dict() for r in results]}
 
 
 # --- 下载后端项目 ZIP ---

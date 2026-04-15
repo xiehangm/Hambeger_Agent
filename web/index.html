@@ -87,6 +87,10 @@
 
             <div class="sidebar-footer">
                 <div class="layer-count" id="layer-count">当前层数: <strong>0</strong></div>
+                <button class="btn-mcp-market" id="btn-mcp-market">
+                    🔌 MCP 工具市场
+                    <span class="mcp-tool-count-badge" id="mcp-tool-count" style="display:none"></span>
+                </button>
                 <button class="btn-serve" id="btn-serve" disabled>🚀 上菜 · Serve Burger</button>
                 <button class="btn-clear" id="btn-clear">🗑️ 清空画布</button>
 
@@ -194,6 +198,53 @@
     <!-- Toast 通知 -->
     <div id="toast" class="toast"></div>
 
+    <!-- ====================================================================
+         MCP 工具市场面板 (Slide-in Panel)
+    ==================================================================== -->
+    <div class="mcp-panel" id="mcp-panel">
+        <div class="mcp-panel-header">
+            <div class="mcp-panel-title">
+                🔌 MCP 工具市场
+                <span class="badge">MARKETPLACE</span>
+            </div>
+            <button class="mcp-panel-close" id="mcp-panel-close">✕</button>
+        </div>
+
+        <div class="mcp-tabs">
+            <button class="mcp-tab-btn active" data-tab="builtin">🧰 内置工具</button>
+            <button class="mcp-tab-btn" data-tab="registry">🌐 注册中心</button>
+            <button class="mcp-tab-btn" data-tab="installed">✅ 已安装</button>
+        </div>
+
+        <div class="mcp-tab-content">
+            <!-- Tab: 内置工具 -->
+            <div id="mcp-tab-builtin">
+                <div class="mcp-search-bar">
+                    <input type="text" class="mcp-search-input" id="mcp-search-input" placeholder="搜索 MCP 服务器...">
+                    <button class="mcp-search-btn" id="mcp-search-btn">🔍</button>
+                </div>
+                <div id="mcp-builtin-list"></div>
+            </div>
+
+            <!-- Tab: 注册中心 -->
+            <div id="mcp-tab-registry" style="display:none">
+                <div class="mcp-search-bar">
+                    <input type="text" class="mcp-search-input" id="mcp-registry-search" placeholder="搜索官方注册中心 & Smithery...">
+                    <button class="mcp-search-btn" id="mcp-registry-search-btn">🔍</button>
+                </div>
+                <div id="mcp-registry-list">
+                    <div class="mcp-empty">点击搜索按钮浏览 MCP 注册中心<br><small>支持 Official Registry + Smithery 双源搜索</small></div>
+                </div>
+            </div>
+
+            <!-- Tab: 已安装 -->
+            <div id="mcp-tab-installed" style="display:none">
+                <button class="mcp-btn mcp-btn-install" id="mcp-add-custom" style="width:100%;margin-bottom:14px;padding:10px;">⚡ 添加自定义 MCP 服务器</button>
+                <div id="mcp-installed-list"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== Scripts ===== -->
     <!-- PixiJS v7 (Global PIXI namespace) -->
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js"></script>
@@ -204,6 +255,7 @@
     <script src="js/recipes.js"></script>
     <script src="js/burger.js"></script>
     <script src="js/codegen.js"></script>
+    <script src="js/mcp_market.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/app.js"></script>
 
