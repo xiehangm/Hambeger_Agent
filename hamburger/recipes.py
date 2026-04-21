@@ -56,7 +56,7 @@ class Recipe(TypedDict, total=False):
 
 # ============================================================
 #  复用的边模式
-# ============================================================ 
+# ============================================================
 _EDGES_NO_CHEESE_NO_TOOLS: List[EdgeSpec] = [
     {"source": "START", "target": "top_bread"},
     {"source": "top_bread", "target": "meat"},
