@@ -6,7 +6,8 @@ $venvActivate = Join-Path $PSScriptRoot "venv\Scripts\Activate.ps1"
 if (Test-Path $venvActivate) {
     Write-Host "激活虚拟环境..." -ForegroundColor Cyan
     & $venvActivate
-} else {
+}
+else {
     Write-Host "未找到虚拟环境，使用系统 Python" -ForegroundColor Yellow
 }
 
