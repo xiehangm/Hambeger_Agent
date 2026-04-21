@@ -354,7 +354,8 @@ def _build_pending_from_snapshot(snapshot, recipe) -> dict:
 
     pending_tools: List[dict] = []
     if isinstance(last, AIMessage):
-        pending_tools = _serialize_tool_calls(getattr(last, "tool_calls", []) or [])
+        pending_tools = _serialize_tool_calls(
+            getattr(last, "tool_calls", []) or [])
 
     # 从 recipe 的 pickle 节点 params 中读 hint
     hint = "是否允许执行上述工具调用？"
