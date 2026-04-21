@@ -8,6 +8,8 @@ window.BurgerGame = window.BurgerGame || {};
     'use strict';
 
     let canvas = null;
+    let mode = 'free';            // 'free' | 'recipe'
+    let selectedRecipeName = null;
 
     // =========================================================
     //  初始化
@@ -15,14 +17,46 @@ window.BurgerGame = window.BurgerGame || {};
     function init() {
         canvas = new BurgerGame.BurgerCanvas('canvas-container');
         canvas.init();
+        // 暴露给 chat.js 调用 highlightLayer
+        BurgerGame.Canvas = canvas;
 
         bindSidebarEvents();
         bindServeButton();
         bindClearButton();
         bindCanvasCallbacks();
+        bindModeToggle();
 
-        // 默认隐藏右侧面板 (通过 CSS class)
         updateLayerCount(0);
+
+        // 等配方数据就绪后渲染配方卡片 & 指南
+        BurgerGame.Recipes.onReady(() => {
+            renderRecipeGuide();
+            renderRecipePicker();
+            updateRecipeHint();
+        });
+    }
+
+    // =========================================================
+    //  模式切换（自由搭配 / 按配方）
+    // =========================================================
+    function bindModeToggle() {
+        const freeBtn = document.getElementById('mode-free');
+        const recipeBtn = document.getElementById('mode-recipe');
+        if (!freeBtn || !recipeBtn) return;
+        freeBtn.addEventListener('click', () => setMode('free'));
+        recipeBtn.addEventListener('click', () => setMode('recipe'));
+    }
+
+    function setMode(newMode) {
+        mode = newMode;
+        const freeBtn = document.getElementById('mode-free');
+        const recipeBtn = document.getElementById('mode-recipe');
+        const freePanel = document.getElementById('panel-free');
+        const recipePanel = document.getElementById('panel-recipe');
+        if (freeBtn) freeBtn.classList.toggle('active', mode === 'free');
+        if (recipeBtn) recipeBtn.classList.toggle('active', mode === 'recipe');
+        if (freePanel) freePanel.style.display = mode === 'free' ? '' : 'none';
+        if (recipePanel) recipePanel.style.display = mode === 'recipe' ? '' : 'none';
     }
 
     // =========================================================
@@ -66,6 +100,21 @@ window.BurgerGame = window.BurgerGame || {};
                 btn.classList.add('btn-shake');
                 setTimeout(() => btn.classList.remove('btn-shake'), 500);
                 return;
+            }
+
+            // 如果当前是"按配方"模式且选了配方，强制使用该 agent_type
+            if (mode === 'recipe' && selectedRecipeName) {
+                const recipe = BurgerGame.Recipes.getRecipe(selectedRecipeName);
+                if (recipe) {
+                    json.agent_type = recipe.name;
+                    json.agent_label = recipe.label;
+                    // 若配方有默认 cheese_prompt 且画布上没有芝士，注入默认
+                    if (recipe.defaultConfig && recipe.defaultConfig.cheese_prompt) {
+                        if (!canvas.layers.some((l) => l.meta.id === 'cheese')) {
+                            json.cheese_prompt = recipe.defaultConfig.cheese_prompt;
+                        }
+                    }
+                }
             }
 
             // 播放动画
@@ -228,6 +277,7 @@ window.BurgerGame = window.BurgerGame || {};
             const tools = [
                 { value: 'calculate_add', label: '🧮 加法计算器 (Calculator)' },
                 { value: 'get_weather', label: '🌤️ 天气查询 (Weather API)' },
+                { value: 'tavily_search', label: '🔍 Tavily 联网搜索 (Web Search)' },
             ];
             const checksHtml = tools
                 .map((t) => {
@@ -299,7 +349,83 @@ window.BurgerGame = window.BurgerGame || {};
         btn.disabled = count === 0;
     }
 
-    // sendToBackend 已迁移到 chat.js 中处理
+    // =========================================================
+    //  配方指南 / 配方选择器（数据源：后端 /api/recipes）
+    // =========================================================
+    function renderRecipeGuide() {
+        const el = document.getElementById('recipe-guide-list');
+        if (!el) return;
+        const recipes = BurgerGame.Recipes.getAllRecipes();
+        if (!recipes.length) {
+            el.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">（配方加载中...）</div>';
+            return;
+        }
+        el.innerHTML = recipes.map((r) => {
+            const caps = r.capabilities || {};
+            const capsHtml = [
+                caps.checkpoint ? '<span class="rg-cap">💾</span>' : '',
+                caps.streaming ? '<span class="rg-cap">🌊</span>' : '',
+                caps.hitl ? '<span class="rg-cap">🛡️</span>' : '',
+            ].join('');
+            const layerDesc = (r.canvasLayers || []).map(layerLabel).join(' ＋ ');
+            return `
+                <div class="recipe-guide-item">
+                    <span class="rg-emoji">${r.emoji}</span>
+                    <span class="rg-content">
+                        <strong>${r.label} ${capsHtml}</strong>
+                        <span>${layerDesc}</span>
+                    </span>
+                </div>`;
+        }).join('');
+    }
+
+    function renderRecipePicker() {
+        const el = document.getElementById('recipe-picker-list');
+        if (!el) return;
+        const recipes = BurgerGame.Recipes.getAllRecipes();
+        if (!recipes.length) {
+            el.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:12px;">（配方加载失败）</div>';
+            return;
+        }
+        el.innerHTML = recipes.map((r) => {
+            const caps = r.capabilities || {};
+            const capChips = [
+                caps.checkpoint ? '<span class="rp-cap" title="多轮记忆">💾</span>' : '',
+                caps.streaming ? '<span class="rp-cap" title="流式输出">🌊</span>' : '',
+                caps.hitl ? '<span class="rp-cap" title="人类审批">🛡️</span>' : '',
+            ].join('');
+            return `
+                <button class="recipe-picker-card" data-name="${r.name}">
+                    <div class="rp-head">
+                        <span class="rp-emoji">${r.emoji}</span>
+                        <span class="rp-label">${r.label}</span>
+                        <span class="rp-caps">${capChips}</span>
+                    </div>
+                    <div class="rp-desc">${r.description || ''}</div>
+                </button>`;
+        }).join('');
+
+        el.querySelectorAll('.recipe-picker-card').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const name = btn.dataset.name;
+                applyRecipe(name);
+                el.querySelectorAll('.recipe-picker-card').forEach((b) => b.classList.toggle('selected', b === btn));
+            });
+        });
+    }
+
+    function applyRecipe(name) {
+        const r = BurgerGame.Recipes.getRecipe(name);
+        if (!r) return;
+        selectedRecipeName = name;
+        canvas.loadRecipeLayers(r.canvasLayers || []);
+        showToast(`已应用配方：${r.emoji} ${r.label}`, 'info');
+    }
+
+    function layerLabel(id) {
+        const meta = BurgerGame.IngredientTypes && BurgerGame.IngredientTypes[id];
+        return meta ? meta.name : id;
+    }
 
     // =========================================================
     //  Toast 通知

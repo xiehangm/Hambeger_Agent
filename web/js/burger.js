@@ -303,9 +303,19 @@ window.BurgerGame = window.BurgerGame || {};
                 if (container.x > CANVAS_W - DELETE_ZONE_W - 40) {
                     this.removeLayer(layer);
                 } else if (moved) {
+                    // 先将所有正在动画中的容器吸附到终态，确保 Y 值准确
+                    for (let i = this.tweens.length - 1; i >= 0; i--) {
+                        const tw = this.tweens[i];
+                        for (const key in tw.endProps) {
+                            tw.obj[key] = tw.endProps[key];
+                        }
+                        this.tweens.splice(i, 1);
+                    }
                     // 根据 Y 位置重新排序
                     this.layers.sort((a, b) => a.container.y - b.container.y);
                     this.updateStack(true);
+                    // 通知外部：顺序已变，触发配方识别刷新
+                    this._fireLayerCountChange();
                 }
 
                 container.alpha = 1;
@@ -524,9 +534,67 @@ window.BurgerGame = window.BurgerGame || {};
         }
 
         // =========================================================
+        //  按配方批量铺层（recipe 模式）
+        //    layerTypes : 从上到下的食材 id 数组
+        // =========================================================
+        loadRecipeLayers(layerTypes) {
+            this.clearAll();
+            (layerTypes || []).forEach((type, i) => {
+                setTimeout(() => this.addIngredient(type), i * 80);
+            });
+        }
+
+        // =========================================================
+        //  节点高亮（SSE 流式执行时用）
+        //    type   : 节点名（与食材 id 对应，bottom_bread/top_bread/...）
+        //    status : 'start' | 'end'
+        //  meat/vegetable 节点在后端的 id 分别是 'meat' / 'vegetable'
+        //  我们通过 meta.id 匹配（meat_patty / lettuce）并做别名映射。
+        // =========================================================
+        highlightLayer(nodeName, status) {
+            const aliasMap = {
+                meat: 'meat_patty',
+                vegetable: 'lettuce',
+                approval: 'lettuce',       // 审批是工具调用前的门，视觉上也落在 lettuce
+            };
+            const ingId = aliasMap[nodeName] || nodeName;
+            const layer = this.layers.find((l) => l.meta.id === ingId);
+            if (!layer || !layer.container) return;
+
+            const c = layer.container;
+            if (status === 'start') {
+                c.alpha = 1;
+                // 闪一下：alpha 轻微脉动
+                this._tween(c, { alpha: 0.55 }, 180, () => {
+                    this._tween(c, { alpha: 1 }, 220);
+                });
+                // 用 tint 叠加高亮（所有支持 tint 的子对象）
+                c.children.forEach((child) => {
+                    if (child.tint !== undefined) {
+                        if (child._origTint === undefined) child._origTint = child.tint;
+                        child.tint = 0xffd700;
+                    }
+                });
+            } else {
+                c.children.forEach((child) => {
+                    if (child._origTint !== undefined) {
+                        child.tint = child._origTint;
+                    }
+                });
+            }
+        }
+
+        // =========================================================
         //  简易 Tween 系统
         // =========================================================
         _tween(obj, props, duration, onComplete) {
+            // 取消同一对象上已有的 tween，避免位置冲突
+            for (let i = this.tweens.length - 1; i >= 0; i--) {
+                if (this.tweens[i].obj === obj) {
+                    this.tweens.splice(i, 1);
+                }
+            }
+
             const tw = {
                 obj: obj,
                 startProps: {},

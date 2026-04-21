@@ -1,422 +1,485 @@
+"""
+hamburger/mcp_loader.py
+=======================
+MCP (Model Context Protocol) 服务器管理与工具加载模块。
+
+职责：
+- 维护内置 MCP 服务器目录（BUILTIN_MCP_SERVERS）
+- 会话级状态：已安装服务器 + 工具发现缓存
+- 提供安装/卸载/发现工具的 API
+- 将 MCP 工具 / CLI 命令生成 LangChain BaseTool 对象
+"""
+
+from __future__ import annotations
+
 import asyncio
 import json
+import shlex
 import subprocess
-import sys
-from typing import Any, Optional
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from langchain_core.tools import BaseTool
-from pydantic import create_model, Field
 
+
+# ─────────────────────────────────────────────
+#  数据结构
+# ─────────────────────────────────────────────
 
 @dataclass
 class MCPServerConfig:
     name: str
-    command: str
-    args: list[str] = field(default_factory=list)
-    env: dict[str, str] = field(default_factory=dict)
+    command: str = "npx"
+    args: List[str] = field(default_factory=list)
+    env: Dict[str, str] = field(default_factory=dict)
     source: str = "builtin"
     description: str = ""
     emoji: str = "🔌"
     category: str = "其他"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "command": self.command,
-            "args": self.args,
-            "env": list(self.env.keys()) if self.env else [],
-            "source": self.source,
-            "description": self.description,
-            "emoji": self.emoji,
-            "category": self.category,
-        }
-
-
-def _build_name_to_id_map() -> dict[str, str]:
-    result = {}
-    for sid, cfg in BUILTIN_MCP_SERVERS.items():
-        result[cfg.name] = sid
-        result[cfg.name.lower()] = sid
-    return result
-
-
-def _resolve_server_id(server_id: str) -> Optional[str]:
-    if server_id in BUILTIN_MCP_SERVERS:
-        return server_id
-    if server_id in _installed_servers:
-        return server_id
-    name_map = _build_name_to_id_map()
-    resolved = name_map.get(server_id) or name_map.get(server_id.lower())
-    if resolved:
-        return resolved
-    for sid, cfg in BUILTIN_MCP_SERVERS.items():
-        if cfg.name.lower() == server_id.lower():
-            return sid
-    return None
 
 
 @dataclass
 class MCPToolInfo:
     name: str
     description: str
-    input_schema: dict[str, Any]
+    input_schema: Dict[str, Any]
     server_name: str
     server_config: MCPServerConfig
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": self.input_schema,
-            "server_name": self.server_name,
-            "server_emoji": self.server_config.emoji,
-        }
 
+# ─────────────────────────────────────────────
+#  内置 MCP 服务器目录
+# ─────────────────────────────────────────────
 
-_installed_servers: dict[str, MCPServerConfig] = {}
-_discovered_tools: dict[str, list[MCPToolInfo]] = {}
-
-
-BUILTIN_MCP_SERVERS: dict[str, MCPServerConfig] = {
+BUILTIN_MCP_SERVERS: Dict[str, MCPServerConfig] = {
     "filesystem": MCPServerConfig(
-        name="Filesystem",
+        name="文件系统",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-filesystem", "."],
-        description="文件系统操作：读写文件、浏览目录",
+        description="读写本地文件与目录，支持递归遍历、搜索内容",
         emoji="📁",
         category="文件操作",
-        source="builtin",
+    ),
+    "fetch": MCPServerConfig(
+        name="网络请求",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-fetch"],
+        description="抓取 URL 内容，返回 Markdown / 原始 HTML",
+        emoji="📡",
+        category="网络",
+    ),
+    "memory": MCPServerConfig(
+        name="记忆存储",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-memory"],
+        description="跨会话持久化键值记忆，存储 Agent 状态",
+        emoji="🧠",
+        category="记忆",
+    ),
+    "sqlite": MCPServerConfig(
+        name="SQLite 数据库",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-sqlite",
+              "--db-path", ":memory:"],
+        description="运行 SQL 查询，读写 SQLite 数据库",
+        emoji="🗄️",
+        category="数据库",
+    ),
+    "puppeteer": MCPServerConfig(
+        name="Puppeteer 浏览器",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-puppeteer"],
+        description="无头浏览器自动化：截图、点击、表单填写",
+        emoji="🌐",
+        category="浏览器",
     ),
     "github": MCPServerConfig(
         name="GitHub",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-github"],
         env={"GITHUB_PERSONAL_ACCESS_TOKEN": ""},
-        description="GitHub API 集成：管理仓库、Issues、PR",
+        description="GitHub 仓库操作：读取文件、搜索代码、创建 Issue",
         emoji="🐙",
         category="开发工具",
-        source="builtin",
     ),
     "postgres": MCPServerConfig(
         name="PostgreSQL",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-postgres"],
         env={"POSTGRES_CONNECTION_STRING": ""},
-        description="PostgreSQL 数据库操作",
+        description="连接 PostgreSQL 数据库，执行 SQL 查询",
         emoji="🐘",
         category="数据库",
-        source="builtin",
     ),
     "brave-search": MCPServerConfig(
-        name="Brave Search",
+        name="Brave 搜索",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-brave-search"],
         env={"BRAVE_API_KEY": ""},
-        description="Brave 搜索引擎集成",
+        description="通过 Brave Search API 搜索互联网内容",
         emoji="🔍",
         category="搜索",
-        source="builtin",
-    ),
-    "fetch": MCPServerConfig(
-        name="Fetch",
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-fetch"],
-        description="HTTP 请求工具：获取网页内容",
-        emoji="📡",
-        category="网络",
-        source="builtin",
-    ),
-    "memory": MCPServerConfig(
-        name="Memory",
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-memory"],
-        description="知识图谱记忆系统",
-        emoji="🧠",
-        category="记忆",
-        source="builtin",
-    ),
-    "sqlite": MCPServerConfig(
-        name="SQLite",
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-sqlite", "--db-path", ":memory:"],
-        description="SQLite 数据库操作",
-        emoji="🗄️",
-        category="数据库",
-        source="builtin",
-    ),
-    "puppeteer": MCPServerConfig(
-        name="Puppeteer",
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-puppeteer"],
-        description="浏览器自动化",
-        emoji="🌐",
-        category="浏览器",
-        source="builtin",
     ),
     "sequential-thinking": MCPServerConfig(
-        name="Sequential Thinking",
+        name="链式思考",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-sequential-thinking"],
-        description="结构化思维链推理",
+        description="结构化多步推理工具，帮助 Agent 拆解复杂任务",
         emoji="🤔",
         category="推理",
-        source="builtin",
     ),
     "slack": MCPServerConfig(
         name="Slack",
         command="npx",
         args=["-y", "@modelcontextprotocol/server-slack"],
         env={"SLACK_BOT_TOKEN": "", "SLACK_TEAM_ID": ""},
-        description="Slack 消息管理",
+        description="发送消息、读取频道、管理 Slack 工作区",
         emoji="💬",
         category="通讯",
-        source="builtin",
     ),
 }
 
 
-def get_builtin_servers() -> list[dict[str, Any]]:
-    return [cfg.to_dict() for cfg in BUILTIN_MCP_SERVERS.values()]
+# ─────────────────────────────────────────────
+#  会话级状态（内存存储）
+# ─────────────────────────────────────────────
+
+# { server_id: { "config": MCPServerConfig, "env_values": dict } }
+_installed_servers: Dict[str, Dict[str, Any]] = {}
+
+# { server_id: [ MCPToolInfo, ... ] }
+_discovered_tools_cache: Dict[str, List[MCPToolInfo]] = {}
 
 
-def get_installed_servers() -> list[dict[str, Any]]:
-    return [cfg.to_dict() for cfg in _installed_servers.values()]
+# ─────────────────────────────────────────────
+#  服务器管理 API
+# ─────────────────────────────────────────────
+
+def install_server(server_id: str, env_values: Dict[str, str]) -> Dict[str, Any]:
+    """注册一个 MCP 服务器（内存级安装，不启动子进程）。"""
+    if server_id not in BUILTIN_MCP_SERVERS:
+        return {"success": False, "error": f"未知服务器 ID: {server_id}"}
+
+    config = BUILTIN_MCP_SERVERS[server_id]
+    _installed_servers[server_id] = {
+        "config": config, "env_values": env_values}
+    # 清除旧缓存以便重新发现
+    _discovered_tools_cache.pop(server_id, None)
+
+    print(f"[MCP] 已安装: {config.name} ({server_id})")
+    return {"success": True, "server_id": server_id, "name": config.name}
 
 
-def install_server(
-    server_id: str,
-    env_values: Optional[dict[str, str]] = None,
-) -> dict[str, Any]:
-    if server_id in BUILTIN_MCP_SERVERS:
-        config = BUILTIN_MCP_SERVERS[server_id]
-    elif server_id in _installed_servers:
-        config = _installed_servers[server_id]
-    else:
-        return {"success": False, "error": f"未找到 MCP 服务器: {server_id}"}
+def uninstall_server(server_id: str) -> Dict[str, Any]:
+    """注销一个已安装的 MCP 服务器。"""
+    if server_id not in _installed_servers:
+        return {"success": False, "error": f"服务器未安装: {server_id}"}
 
-    if env_values:
-        for k, v in env_values.items():
-            if k in config.env:
-                config.env[k] = v
-
-    missing = [k for k, v in config.env.items() if not v]
-    if missing:
-        return {
-            "success": False,
-            "error": f"缺少必要的环境变量: {', '.join(missing)}",
-            "missing_env": missing,
-        }
-
-    _installed_servers[server_id] = config
-    return {
-        "success": True,
-        "message": f"MCP 服务器 {config.name} 已安装",
-        "server": config.to_dict(),
-    }
+    _installed_servers.pop(server_id)
+    _discovered_tools_cache.pop(server_id, None)
+    print(f"[MCP] 已卸载: {server_id}")
+    return {"success": True}
 
 
-def uninstall_server(server_id: str) -> dict[str, Any]:
-    if server_id in _installed_servers:
-        config = _installed_servers.pop(server_id)
-        _discovered_tools.pop(server_id, None)
+def get_installed_servers() -> List[Dict[str, Any]]:
+    """返回已安装的服务器列表（含已发现工具）。"""
+    result = []
+    for sid, data in _installed_servers.items():
+        cfg: MCPServerConfig = data["config"]
+        tools = _discovered_tools_cache.get(sid, [])
+        result.append({
+            "id": sid,
+            "name": cfg.name,
+            "emoji": cfg.emoji,
+            "category": cfg.category,
+            "description": cfg.description,
+            "tools": [
+                {"name": t.name, "description": t.description}
+                for t in tools
+            ],
+            "tools_discovered": sid in _discovered_tools_cache,
+        })
+    return result
+
+
+def get_builtin_servers() -> List[Dict[str, Any]]:
+    """返回所有内置服务器的摘要信息供前端展示。"""
+    result = []
+    for sid, cfg in BUILTIN_MCP_SERVERS.items():
+        result.append({
+            "id": sid,
+            "name": cfg.name,
+            "emoji": cfg.emoji,
+            "category": cfg.category,
+            "description": cfg.description,
+            "env_keys": list(cfg.env.keys()),
+            "installed": sid in _installed_servers,
+        })
+    return result
+
+
+# ─────────────────────────────────────────────
+#  工具发现（异步，启动 MCP 子进程）
+# ─────────────────────────────────────────────
+
+async def discover_tools(server_id: str) -> Dict[str, Any]:
+    """
+    启动 MCP 服务器子进程，发送 tools/list JSON-RPC 请求，
+    解析并缓存工具列表。子进程不可用时返回 graceful 错误。
+    """
+    if server_id not in _installed_servers:
+        return {"success": False, "error": "服务器未安装", "tools": []}
+
+    # 命中缓存则直接返回
+    if server_id in _discovered_tools_cache:
+        tools = _discovered_tools_cache[server_id]
         return {
             "success": True,
-            "message": f"MCP 服务器 {config.name} 已卸载",
+            "tools": [{"name": t.name, "description": t.description} for t in tools],
         }
-    return {"success": False, "error": f"服务器 {server_id} 未安装"}
 
+    data = _installed_servers[server_id]
+    cfg: MCPServerConfig = data["config"]
+    env_values: Dict[str, str] = data["env_values"]
 
-async def _discover_tools_from_server(
-    config: MCPServerConfig, timeout: float = 15.0
-) -> list[MCPToolInfo]:
-    tools = []
+    # 合并环境变量
+    import os
+    merged_env = {**os.environ, **
+                  {k: env_values.get(k, v) for k, v in cfg.env.items()}}
 
     try:
-        import os
-
-        env = {**os.environ, **config.env}
-
-        proc = await asyncio.create_subprocess_exec(
-            config.command,
-            *config.args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-
-        init_request = {
-            "jsonrpc": "2.0",
-            "id": 1,
+        # JSON-RPC 初始化消息
+        init_msg = json.dumps({
+            "jsonrpc": "2.0", "id": 1,
             "method": "initialize",
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {"name": "hamburger-agent", "version": "1.0.0"},
             },
-        }
-
-        init_json = json.dumps(init_request) + "\n"
-        proc.stdin.write(init_json.encode())
-        await proc.stdin.drain()
-
-        try:
-            line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
-            _init_resp = json.loads(line.decode().strip())
-        except asyncio.TimeoutError:
-            pass
-
-        tools_request = {
-            "jsonrpc": "2.0",
-            "id": 2,
+        })
+        list_msg = json.dumps({
+            "jsonrpc": "2.0", "id": 2,
             "method": "tools/list",
             "params": {},
-        }
+        })
 
-        tools_json = json.dumps(tools_request) + "\n"
-        proc.stdin.write(tools_json.encode())
-        await proc.stdin.drain()
+        proc = await asyncio.create_subprocess_exec(
+            cfg.command, *cfg.args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=merged_env,
+        )
 
-        try:
-            line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
-            tools_resp = json.loads(line.decode().strip())
-            tool_list = tools_resp.get("result", {}).get("tools", [])
-            for t in tool_list:
-                tools.append(
-                    MCPToolInfo(
+        # 写入两条 JSON-RPC 请求（换行分隔）
+        stdin_data = (init_msg + "\n" + list_msg + "\n").encode()
+        stdout_data, stderr_data = await asyncio.wait_for(
+            proc.communicate(stdin_data),
+            timeout=15.0,
+        )
+
+        # 解析 stdout，找到 tools/list 的响应
+        discovered: List[MCPToolInfo] = []
+        for line in stdout_data.decode(errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if resp.get("id") == 2 and "result" in resp:
+                for t in resp["result"].get("tools", []):
+                    discovered.append(MCPToolInfo(
                         name=t.get("name", ""),
                         description=t.get("description", ""),
                         input_schema=t.get("inputSchema", {}),
-                        server_name=config.name,
-                        server_config=config,
-                    )
-                )
-        except asyncio.TimeoutError:
-            pass
+                        server_name=server_id,
+                        server_config=cfg,
+                    ))
+                break
 
-        proc.terminate()
-        await proc.wait()
+        _discovered_tools_cache[server_id] = discovered
+        print(f"[MCP] 发现 {len(discovered)} 个工具 from {server_id}")
+        return {
+            "success": True,
+            "tools": [{"name": t.name, "description": t.description} for t in discovered],
+        }
 
+    except asyncio.TimeoutError:
+        return {"success": False, "error": "MCP 服务器启动超时（请确认 npx 可用）", "tools": []}
     except FileNotFoundError:
-        tools.append(
-            MCPToolInfo(
-                name=f"{config.name}_unavailable",
-                description=f"[需要安装 {config.command}] {config.description}",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "输入参数",
-                        }
-                    },
-                },
-                server_name=config.name,
-                server_config=config,
-            )
-        )
-    except Exception as e:
-        print(f"[MCP Loader] Failed to discover tools from {config.name}: {e}")
-
-    return tools
+        return {"success": False, "error": f"命令不存在: {cfg.command}（请安装 Node.js / npx）", "tools": []}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "tools": []}
 
 
-async def discover_tools(server_id: str) -> list[dict[str, Any]]:
-    config = _installed_servers.get(server_id) or BUILTIN_MCP_SERVERS.get(server_id)
-    if not config:
-        return []
-
-    tools = await _discover_tools_from_server(config)
-    _discovered_tools[server_id] = tools
-    return [t.to_dict() for t in tools]
-
-
-async def discover_all_installed_tools() -> list[dict[str, Any]]:
-    all_tools = []
-    for sid in list(_installed_servers.keys()):
-        tools = await discover_tools(sid)
-        all_tools.extend(tools)
-    return all_tools
-
-
-def _schema_to_pydantic(schema: dict[str, Any]) -> type:
-    fields = {}
-    properties = schema.get("properties", {})
-    required = set(schema.get("required", []))
-
-    type_map = {
-        "string": (str, ...),
-        "integer": (int, ...),
-        "number": (float, ...),
-        "boolean": (bool, ...),
-        "array": (list, ...),
-    }
-
-    for prop_name, prop_schema in properties.items():
-        py_type_info = type_map.get(prop_schema.get("type", "string"), (str, ...))
-        py_type = py_type_info[0]
-        desc = prop_schema.get("description", "")
-        default = ... if prop_name in required else None
-        fields[prop_name] = (py_type, Field(default=default, description=desc))
-
-    if not fields:
-        fields["_placeholder"] = (str, Field(default="", description="No input needed"))
-
-    return create_model("DynamicInput", **fields)
-
+# ─────────────────────────────────────────────
+#  工具工厂：MCP 工具 → LangChain BaseTool
+# ─────────────────────────────────────────────
 
 def create_langchain_tool(tool_info: MCPToolInfo) -> BaseTool:
-    from langchain_core.tools import StructuredTool
+    """将 MCPToolInfo 封装为 LangChain BaseTool（通过子进程 JSON-RPC 调用）。"""
+    cfg = tool_info.server_config
+    tool_name = tool_info.name
 
-    input_model = _schema_to_pydantic(tool_info.input_schema)
+    class _MCPTool(BaseTool):
+        name: str = tool_info.name
+        description: str = tool_info.description or f"MCP 工具: {tool_info.name}"
 
-    async def _arun(**kwargs):
-        return f"[MCP] 调用 {tool_info.name}({kwargs}) — 需要连接到 MCP 服务器 {tool_info.server_name}"
+        def _run(self, **kwargs: Any) -> str:
+            return _call_mcp_tool_sync(cfg, tool_name, kwargs)
 
-    def _run(**kwargs):
-        return f"[MCP] 调用 {tool_info.name}({kwargs}) — 需要连接到 MCP 服务器 {tool_info.server_name}"
+        async def _arun(self, **kwargs: Any) -> str:
+            return await _call_mcp_tool_async(cfg, tool_name, kwargs)
 
-    return StructuredTool(
-        name=f"mcp_{tool_info.server_name}_{tool_info.name}",
-        description=f"[{tool_info.server_config.emoji} {tool_info.server_name}] {tool_info.description}",
-        func=_run,
-        coroutine=_arun,
-        args_schema=input_model,
-    )
+    return _MCPTool()
 
 
-def get_langchain_tools_for_server(server_id: str) -> list[BaseTool]:
-    tools_info = _discovered_tools.get(server_id, [])
-    return [create_langchain_tool(t) for t in tools_info]
+def _call_mcp_tool_sync(cfg: MCPServerConfig, tool_name: str, arguments: Dict[str, Any]) -> str:
+    """同步调用 MCP 工具（启动子进程，发送单次 tool/call 请求）。"""
+    import os
+    merged_env = {**os.environ, **{k: "" for k in cfg.env}}
+
+    init_msg = json.dumps({
+        "jsonrpc": "2.0", "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "hamburger-agent", "version": "1.0.0"},
+        },
+    })
+    call_msg = json.dumps({
+        "jsonrpc": "2.0", "id": 2,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    })
+
+    try:
+        result = subprocess.run(
+            [cfg.command] + cfg.args,
+            input=(init_msg + "\n" + call_msg + "\n"),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=merged_env,
+        )
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if resp.get("id") == 2:
+                if "result" in resp:
+                    content = resp["result"].get("content", [])
+                    parts = [c.get("text", "")
+                             for c in content if c.get("type") == "text"]
+                    return "\n".join(parts) if parts else str(resp["result"])
+                if "error" in resp:
+                    return f"[MCP Error] {resp['error'].get('message', str(resp['error']))}"
+        return "[MCP] 无返回内容"
+    except subprocess.TimeoutExpired:
+        return "[MCP] 调用超时"
+    except Exception as exc:
+        return f"[MCP] 调用失败: {exc}"
 
 
-def get_all_langchain_tools() -> list[BaseTool]:
-    all_tools = []
-    for sid in _installed_servers:
-        all_tools.extend(get_langchain_tools_for_server(sid))
-    return all_tools
+async def _call_mcp_tool_async(cfg: MCPServerConfig, tool_name: str, arguments: Dict[str, Any]) -> str:
+    import os
+    merged_env = {**os.environ, **{k: "" for k in cfg.env}}
+
+    init_msg = json.dumps({
+        "jsonrpc": "2.0", "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "hamburger-agent", "version": "1.0.0"},
+        },
+    })
+    call_msg = json.dumps({
+        "jsonrpc": "2.0", "id": 2,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    })
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            cfg.command, *cfg.args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=merged_env,
+        )
+        stdin_data = (init_msg + "\n" + call_msg + "\n").encode()
+        stdout_data, _ = await asyncio.wait_for(proc.communicate(stdin_data), timeout=30.0)
+
+        for line in stdout_data.decode(errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if resp.get("id") == 2:
+                if "result" in resp:
+                    content = resp["result"].get("content", [])
+                    parts = [c.get("text", "")
+                             for c in content if c.get("type") == "text"]
+                    return "\n".join(parts) if parts else str(resp["result"])
+                if "error" in resp:
+                    return f"[MCP Error] {resp['error'].get('message', str(resp['error']))}"
+        return "[MCP] 无返回内容"
+    except asyncio.TimeoutError:
+        return "[MCP] 调用超时"
+    except Exception as exc:
+        return f"[MCP] 调用失败: {exc}"
 
 
-def add_custom_server(
-    server_id: str,
-    name: str,
-    command: str,
-    args: list[str],
-    env: Optional[dict[str, str]] = None,
-    description: str = "",
-    emoji: str = "🔌",
-    category: str = "自定义",
-) -> dict[str, Any]:
-    config = MCPServerConfig(
-        name=name,
-        command=command,
-        args=args,
-        env=env or {},
-        description=description,
-        emoji=emoji,
-        category=category,
-        source="custom",
-    )
-    _installed_servers[server_id] = config
-    return {"success": True, "message": f"自定义 MCP 服务器 {name} 已添加"}
+# ─────────────────────────────────────────────
+#  工具工厂：CLI 命令 → LangChain BaseTool
+# ─────────────────────────────────────────────
+
+def create_cli_tool(name: str, description: str, command_template: str) -> BaseTool:
+    """
+    将 Shell 命令模板封装为 LangChain BaseTool。
+    命令中的 {input} 占位符会被工具输入替换。
+    """
+    class _CLITool(BaseTool):
+        name: str = name
+        description: str = description or f"CLI 工具: {name}"
+
+        def _run(self, input: str = "", **kwargs: Any) -> str:
+            # 替换占位符，防止 shell 注入（使用列表参数，不经过 shell 解释）
+            cmd_str = command_template.replace("{input}", input)
+            try:
+                parts = shlex.split(cmd_str)
+                result = subprocess.run(
+                    parts,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    shell=False,  # 安全：不使用 shell=True
+                )
+                output = result.stdout.strip()
+                if result.returncode != 0:
+                    stderr = result.stderr.strip()
+                    return f"[CLI 错误 exit={result.returncode}] {stderr or output}"
+                return output if output else "(命令执行成功，无输出)"
+            except subprocess.TimeoutExpired:
+                return "[CLI] 执行超时"
+            except FileNotFoundError as exc:
+                return f"[CLI] 命令不存在: {exc}"
+            except Exception as exc:
+                return f"[CLI] 执行失败: {exc}"
+
+        async def _arun(self, input: str = "", **kwargs: Any) -> str:
+            return self._run(input=input, **kwargs)
+
+    return _CLITool()

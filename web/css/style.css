@@ -1848,3 +1848,123 @@ html, body {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* ===============================================================
+   配方系统 2.0 新增样式：模式切换 + 配方选择器 + HITL 审批
+   =============================================================== */
+.mode-switch {
+    display: flex;
+    gap: 6px;
+    padding: 10px 16px 4px;
+}
+.mode-switch .mode-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-glass);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+.mode-switch .mode-btn:hover { color: var(--text-primary); }
+.mode-switch .mode-btn.active {
+    background: linear-gradient(135deg, var(--accent-purple), #a29bfe);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 4px 14px var(--accent-purple-glow);
+}
+
+/* --- 配方选择器 --- */
+.recipe-picker-header { padding: 12px 16px 6px; }
+.recipe-picker-header h3 { font-size: 1rem; margin-bottom: 4px; }
+.recipe-picker-header .subtitle { font-size: 0.8rem; color: var(--text-muted); }
+.recipe-picker-list {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 8px 12px; max-height: 60vh; overflow-y: auto;
+}
+.recipe-picker-card {
+    text-align: left; border: 1px solid var(--border-glass);
+    background: var(--bg-card); border-radius: var(--radius-md);
+    padding: 10px 12px; cursor: pointer; color: inherit;
+    font-family: inherit; transition: var(--transition-fast);
+}
+.recipe-picker-card:hover {
+    border-color: var(--accent-purple);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(108,92,231,0.15);
+}
+.recipe-picker-card.selected {
+    border-color: var(--accent-purple);
+    background: rgba(108, 92, 231, 0.12);
+    box-shadow: 0 0 0 2px var(--accent-purple-glow);
+}
+.recipe-picker-card .rp-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+}
+.recipe-picker-card .rp-emoji { font-size: 1.2rem; }
+.recipe-picker-card .rp-label { font-weight: 600; color: var(--text-primary); }
+.recipe-picker-card .rp-caps { margin-left: auto; display: flex; gap: 4px; }
+.recipe-picker-card .rp-cap {
+    font-size: 0.85rem; padding: 0 4px; border-radius: 6px;
+    background: rgba(46,204,113,0.12);
+}
+.recipe-picker-card .rp-desc {
+    font-size: 0.8rem; color: var(--text-secondary); line-height: 1.45;
+}
+
+/* --- 配方指南的能力图标 --- */
+.rg-cap {
+    display: inline-block; font-size: 0.7rem; margin-left: 2px;
+    opacity: 0.7;
+}
+
+/* --- HITL 审批卡片 --- */
+.approval-card {
+    border: 1px solid rgba(243, 156, 18, 0.4);
+    background: rgba(243, 156, 18, 0.08);
+    border-radius: var(--radius-md);
+    padding: 12px;
+}
+.approval-hint {
+    font-weight: 600; color: #f39c12; margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+.approval-call {
+    margin: 6px 0; padding: 6px 8px;
+    background: rgba(0,0,0,0.18); border-radius: 6px;
+}
+.approval-call code {
+    color: var(--accent-orange); font-size: 0.85rem;
+}
+.approval-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+}
+.approval-btn {
+    flex: 1; padding: 8px 12px; border-radius: 8px;
+    border: none; cursor: pointer; font-family: inherit; font-weight: 600;
+    transition: var(--transition-fast);
+}
+.approval-approve {
+    background: #2ecc71; color: #0a0a1a;
+}
+.approval-approve:hover { filter: brightness(1.1); }
+.approval-reject {
+    background: rgba(231, 76, 60, 0.2); color: #ff7875;
+    border: 1px solid rgba(231, 76, 60, 0.4);
+}
+.approval-reject:hover { background: rgba(231, 76, 60, 0.3); }
+
+/* --- 流式执行轨迹 --- */
+.thinking-trace {
+    margin-top: 6px; font-size: 0.75rem; color: var(--text-muted);
+    display: flex; gap: 8px; flex-wrap: wrap;
+}
+.thinking-trace .trace-step {
+    padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    transition: opacity 0.2s;
+}
