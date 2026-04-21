@@ -111,11 +111,65 @@ _EDGES_CHEESE_WITH_APPROVAL: List[EdgeSpec] = [
     {"source": "bottom_bread", "target": "END"},
 ]
 
+_EDGES_ONION_WITH_TOOLS: List[EdgeSpec] = [
+    {"source": "START", "target": "top_bread"},
+    {"source": "top_bread", "target": "onion"},
+    {"source": "onion", "target": "meat"},
+    {
+        "source": "meat",
+        "condition": "tools",
+        "branches": {"tools": "vegetable", "end": "bottom_bread"},
+    },
+    {"source": "vegetable", "target": "meat"},
+    {"source": "bottom_bread", "target": "END"},
+]
+
+_EDGES_ONION_WITH_APPROVAL: List[EdgeSpec] = [
+    {"source": "START", "target": "top_bread"},
+    {"source": "top_bread", "target": "onion"},
+    {"source": "onion", "target": "meat"},
+    {
+        "source": "meat",
+        "condition": "tools",
+        "branches": {"tools": "pickle", "end": "bottom_bread"},
+    },
+    {"source": "pickle", "target": "vegetable"},
+    {"source": "vegetable", "target": "meat"},
+    {"source": "bottom_bread", "target": "END"},
+]
+
 
 # ============================================================
 #  配方注册表（优先级由高到低，用于 match_recipe）
 # ============================================================
 RECIPES: List[Recipe] = [
+    # ---------- 意图识别 + 审批 + 工具联动 ----------
+    {
+        "name": "intent_approval_tool_agent",
+        "label": "意图识别 + 审批工具 Agent",
+        "description": "先识别用户意图，再由 AI 规划工具调用；真正执行前暂停等待人工审批",
+        "emoji": "🧅🛡️",
+        "required_set": ["top_bread", "onion", "meat_patty", "lettuce", "pickle", "bottom_bread"],
+        "forbidden": ["tomato", "chili"],
+        "nodes": [
+            {"id": "top_bread", "type": "top_bread"},
+            {"id": "onion", "type": "onion", "params": {"default": "chat"}},
+            {"id": "meat", "type": "meat_patty"},
+            {"id": "pickle", "type": "pickle",
+             "params": {"hint": "系统已根据意图生成工具计划，是否允许执行？"}},
+            {"id": "vegetable", "type": "vegetable"},
+            {"id": "bottom_bread", "type": "bottom_bread"},
+        ],
+        "edges": _EDGES_ONION_WITH_APPROVAL,
+        "capabilities": {
+            "checkpoint": True,
+            "streaming": True,
+            "hitl": True,
+            "memory": False,
+            "interrupt_before": ["pickle"],
+        },
+        "default_config": {},
+    },
     # ---------- 审批型工具 Agent (HITL) ----------
     {
         "name": "approval_tool_agent",
@@ -144,6 +198,33 @@ RECIPES: List[Recipe] = [
         },
         "default_config": {
             "cheese_prompt": "你是一个需要人类审批的智能助手，调用工具前请清晰说明意图。",
+            "default_tools": ["get_weather", "calculate_add"],
+        },
+    },
+    # ---------- 意图识别 + 工具调用 ----------
+    {
+        "name": "intent_tool_agent",
+        "label": "意图识别工具 Agent",
+        "description": "先识别用户意图，再由 AI 自主决定是否调用工具以及调用哪个工具",
+        "emoji": "🧅🤖",
+        "required_set": ["top_bread", "onion", "meat_patty", "lettuce", "bottom_bread"],
+        "forbidden": ["pickle", "tomato", "chili"],
+        "nodes": [
+            {"id": "top_bread", "type": "top_bread"},
+            {"id": "onion", "type": "onion", "params": {"default": "chat"}},
+            {"id": "meat", "type": "meat_patty"},
+            {"id": "vegetable", "type": "vegetable"},
+            {"id": "bottom_bread", "type": "bottom_bread"},
+        ],
+        "edges": _EDGES_ONION_WITH_TOOLS,
+        "capabilities": {
+            "checkpoint": True,
+            "streaming": True,
+            "hitl": False,
+            "memory": False,
+        },
+        "default_config": {
+            "default_tools": ["get_weather", "calculate_add"],
         },
     },
     # ---------- 工具调用 Agent ----------
@@ -170,6 +251,7 @@ RECIPES: List[Recipe] = [
         },
         "default_config": {
             "cheese_prompt": "你是一个善于使用工具解决问题的智能助手。",
+            "default_tools": ["get_weather", "calculate_add"],
         },
     },
     # ---------- 默认工具 Agent ----------
@@ -193,7 +275,9 @@ RECIPES: List[Recipe] = [
             "hitl": False,
             "memory": False,
         },
-        "default_config": {},
+        "default_config": {
+            "default_tools": ["get_weather", "calculate_add"],
+        },
     },
     # ---------- 记忆对话（多轮） ----------
     {
@@ -266,7 +350,9 @@ RECIPES: List[Recipe] = [
             "hitl": False,
             "memory": False,
         },
-        "default_config": {},
+        "default_config": {
+            "default_tools": ["get_weather", "calculate_add"],
+        },
     },
     # ---------- 🧅 路由对话 (Onion = conditional router) ----------
     {
@@ -382,6 +468,130 @@ def validate_structure(layer_types: List[str]) -> dict:
     return {"valid": True}
 
 
+def _recipe_scene_meta(recipe: Recipe) -> dict:
+    name = recipe["name"]
+    default_roles = [
+        {"key": "ai", "label": "AI 决策", "active": True},
+        {"key": "human", "label": "Human 审批", "active": False},
+        {"key": "tool", "label": "Tool 执行", "active": False},
+    ]
+    metas: Dict[str, dict] = {
+        "intent_tool_agent": {
+            "group": "core",
+            "badge": "自主",
+            "focus": "先识别意图，再由 AI 决定是否调用工具。",
+            "summary": "AI 负责判断，Tool 负责执行。",
+            "roles": [
+                {"key": "ai", "label": "AI 决策", "active": True},
+                {"key": "human", "label": "Human 审批", "active": False},
+                {"key": "tool", "label": "Tool 执行", "active": True},
+            ],
+            "stages": [
+                {"key": "intent", "label": "意图识别", "actor": "ai"},
+                {"key": "plan", "label": "工具规划", "actor": "ai"},
+                {"key": "tool", "label": "工具执行", "actor": "tool"},
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+            "sample_prompts": [
+                "帮我查下今天北京天气",
+                "帮我总结一下这句话",
+            ],
+        },
+        "approval_tool_agent": {
+            "group": "core",
+            "badge": "审批",
+            "focus": "AI 先提出工具计划，真正执行前必须由人批准。",
+            "summary": "AI 提计划，Human 放行，Tool 执行。",
+            "roles": [
+                {"key": "ai", "label": "AI 决策", "active": True},
+                {"key": "human", "label": "Human 审批", "active": True},
+                {"key": "tool", "label": "Tool 执行", "active": True},
+            ],
+            "stages": [
+                {"key": "plan", "label": "工具规划", "actor": "ai"},
+                {"key": "approval", "label": "等待审批", "actor": "human"},
+                {"key": "tool", "label": "工具执行", "actor": "tool"},
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+            "sample_prompts": [
+                "帮我查天气并告诉我结果",
+                "先帮我算一下 12 + 30",
+            ],
+        },
+        "intent_approval_tool_agent": {
+            "group": "core",
+            "badge": "联动",
+            "focus": "AI 先识别意图并规划工具，再把执行权交给人审批。",
+            "summary": "AI 判断与规划，Human 放行，Tool 执行。",
+            "roles": [
+                {"key": "ai", "label": "AI 决策", "active": True},
+                {"key": "human", "label": "Human 审批", "active": True},
+                {"key": "tool", "label": "Tool 执行", "active": True},
+            ],
+            "stages": [
+                {"key": "intent", "label": "意图识别", "actor": "ai"},
+                {"key": "plan", "label": "工具规划", "actor": "ai"},
+                {"key": "approval", "label": "等待审批", "actor": "human"},
+                {"key": "tool", "label": "工具执行", "actor": "tool"},
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+            "sample_prompts": [
+                "如果需要联网就先查再告诉我",
+                "先判断要不要用工具，再执行给我看",
+            ],
+        },
+        "tool_agent": {
+            "group": "classic",
+            "badge": "自主",
+            "focus": "不显式分意图，直接由 AI 决定是否调用工具。",
+            "summary": "AI 自主选工具并整合结果。",
+            "roles": [
+                {"key": "ai", "label": "AI 决策", "active": True},
+                {"key": "human", "label": "Human 审批", "active": False},
+                {"key": "tool", "label": "Tool 执行", "active": True},
+            ],
+            "stages": [
+                {"key": "plan", "label": "工具规划", "actor": "ai"},
+                {"key": "tool", "label": "工具执行", "actor": "tool"},
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+            "sample_prompts": ["今天天气怎么样", "帮我算一下 2 + 3"],
+        },
+        "router_chat": {
+            "group": "classic",
+            "badge": "路由",
+            "focus": "先分类，再把请求派发到不同处理支路。",
+            "summary": "适合教学展示条件路由，不强调人工审批。",
+            "roles": [
+                {"key": "ai", "label": "AI 决策", "active": True},
+                {"key": "human", "label": "Human 审批", "active": False},
+                {"key": "tool", "label": "Tool 执行", "active": True},
+            ],
+            "stages": [
+                {"key": "intent", "label": "意图识别", "actor": "ai"},
+                {"key": "tool", "label": "支路执行", "actor": "tool"},
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+            "sample_prompts": ["搜索一下今天的科技新闻", "计算 18 * 7"],
+        },
+    }
+    meta = metas.get(name, {})
+    return {
+        "group": meta.get("group", "classic"),
+        "badge": meta.get("badge", "标准"),
+        "focus": meta.get("focus", recipe.get("description", "")),
+        "summary": meta.get("summary", recipe.get("description", "")),
+        "roles": meta.get("roles", default_roles),
+        "stages": meta.get(
+            "stages",
+            [
+                {"key": "answer", "label": "生成回复", "actor": "ai"},
+            ],
+        ),
+        "sample_prompts": meta.get("sample_prompts", []),
+    }
+
+
 def recipe_summary(recipe: Recipe) -> dict:
     """
     生成可被前端安全消费的配方摘要（纯声明式数据，不含 Python 引用）。
@@ -414,6 +624,7 @@ def recipe_summary(recipe: Recipe) -> dict:
         "capabilities": dict(recipe.get("capabilities", {})),
         "canvas_layers": _suggest_canvas_layers(recipe),
         "default_config": dict(recipe.get("default_config", {})),
+        "scene": _recipe_scene_meta(recipe),
         # 🔗 LangGraph 拓扑，用于前端画布连线
         "edges": linear_edges,
         "conditional_edges": cond_edges,

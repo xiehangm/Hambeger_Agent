@@ -13,6 +13,7 @@ from typing import Any, List, Optional, Dict
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import MemorySaver
@@ -235,6 +236,7 @@ async def build_burger(config: BuildConfig):
             "agent_type": agent_type,
             "agent_label": agent_label,
             "capabilities": _sessions[thread_id]["capabilities"],
+            "recipe_meta": recipe_summary(recipe),
         }
     except HTTPException:
         raise
@@ -301,26 +303,58 @@ def _get_session(thread_id: Optional[str]) -> Dict[str, Any]:
     return sess
 
 
+def _serialize_tool_calls(tool_calls: Optional[List[dict]]) -> List[dict]:
+    serialized: List[dict] = []
+    for tc in tool_calls or []:
+        serialized.append({
+            "name": tc.get("name"),
+            "args": tc.get("args") or {},
+            "id": tc.get("id"),
+        })
+    return serialized
+
+
+def _extract_last_ai_message(output: Any) -> Optional[AIMessage]:
+    if isinstance(output, AIMessage):
+        return output
+    if isinstance(output, dict):
+        messages = output.get("messages") or []
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                return msg
+    return None
+
+
+def _extract_intent(output: Any) -> Optional[str]:
+    if isinstance(output, dict):
+        intent = output.get("intent")
+        if intent:
+            return str(intent)
+    return None
+
+
+def _intent_label(intent: Optional[str]) -> str:
+    mapping = {
+        "chat": "闲聊 / 直接回答",
+        "search": "搜索 / 查找信息",
+        "compute": "计算 / 求值",
+    }
+    return mapping.get(intent or "", intent or "未知")
+
+
 def _build_pending_from_snapshot(snapshot, recipe) -> dict:
     """
     在 interrupt_before 暂停时，LangGraph 尚未进入 pickle 节点，
     所以 state.pending_approval 是空的。这里直接从 messages 最后一条
     AIMessage 现场解析 tool_calls，合成一个可以渲染的 pending 载荷。
     """
-    from langchain_core.messages import AIMessage
-
     values = (snapshot.values if snapshot else None) or {}
     messages = values.get("messages") or []
     last = messages[-1] if messages else None
 
     pending_tools: List[dict] = []
     if isinstance(last, AIMessage):
-        for tc in getattr(last, "tool_calls", []) or []:
-            pending_tools.append({
-                "name": tc.get("name"),
-                "args": tc.get("args"),
-                "id": tc.get("id"),
-            })
+        pending_tools = _serialize_tool_calls(getattr(last, "tool_calls", []) or [])
 
     # 从 recipe 的 pickle 节点 params 中读 hint
     hint = "是否允许执行上述工具调用？"
@@ -410,16 +444,34 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
         async for ev in graph.astream_events(inp, config=cfg, version="v2"):
             etype = ev.get("event", "")
             name = ev.get("name", "")
-            interesting_nodes = {"top_bread", "cheese", "meat",
+            interesting_nodes = {"top_bread", "cheese", "onion", "meat",
                                  "vegetable", "pickle", "bottom_bread"}
             if etype == "on_chain_start" and name in interesting_nodes:
                 yield _sse({"type": "node", "name": name, "status": "start"})
                 # 每个事件后让出一次，避免 uvicorn 把多个 SSE 合并成一包发送
                 await asyncio.sleep(0)
             elif etype == "on_chain_end" and name in interesting_nodes:
+                data = ev.get("data") or {}
+                output = data.get("output")
+                if name == "onion":
+                    intent = _extract_intent(output)
+                    if intent:
+                        yield _sse({
+                            "type": "intent",
+                            "intent": intent,
+                            "label": _intent_label(intent),
+                        })
+                        await asyncio.sleep(0)
+                elif name == "meat":
+                    ai_msg = _extract_last_ai_message(output)
+                    if ai_msg is not None and getattr(ai_msg, "tool_calls", None):
+                        yield _sse({
+                            "type": "tool_plan",
+                            "tool_calls": _serialize_tool_calls(ai_msg.tool_calls),
+                            "summary": (ai_msg.content or "")[:160],
+                        })
+                        await asyncio.sleep(0)
                 if name == "bottom_bread":
-                    data = ev.get("data") or {}
-                    output = data.get("output")
                     if isinstance(output, dict):
                         final_state_from_events = output
                 yield _sse({"type": "node", "name": name, "status": "end"})
@@ -444,7 +496,12 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
                 out_str = None
                 if out is not None:
                     try:
-                        out_str = str(out)
+                        if hasattr(out, "content"):
+                            out_str = getattr(out, "content", None)
+                        elif isinstance(out, dict) and out.get("content"):
+                            out_str = out.get("content")
+                        else:
+                            out_str = str(out)
                         if len(out_str) > 400:
                             out_str = out_str[:400] + "..."
                     except Exception:
@@ -479,7 +536,8 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
         # 流结束后读取当前状态，判断是否被 interrupt 暂停
         if uses_checkpointer:
             snapshot = graph.get_state(cfg)
-            next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
+            next_nodes = list(
+                snapshot.next) if snapshot and snapshot.next else []
             if next_nodes:
                 # 仍有待执行的节点 → 处于 interrupt 暂停态
                 pending = _build_pending_from_snapshot(snapshot, recipe)

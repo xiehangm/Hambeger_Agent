@@ -6,18 +6,17 @@ window.BurgerGame = window.BurgerGame || {};
 (function () {
     'use strict';
 
-    // =========================================================
-    //  状态
-    // =========================================================
     let currentBurgerJSON = null;
+    let currentRecipe = null;
     let threadId = null;
     let capabilities = {};
     let chatHistory = [];
     let isWaiting = false;
-    let pendingApproval = null;      // {hint, tool_calls}
+    let pendingApproval = null;
+    let currentRunState = null;
 
-    // DOM 缓存
     let els = {};
+    let msgCounter = 0;
 
     function cacheElements() {
         els = {
@@ -30,32 +29,36 @@ window.BurgerGame = window.BurgerGame || {};
             chatDownloadBtn: document.getElementById('chat-download-btn'),
             chatConfigSummary: document.getElementById('chat-config-summary'),
             chatStatus: document.getElementById('chat-status'),
+            chatSceneOverview: document.getElementById('chat-scene-overview'),
+            chatStageTimeline: document.getElementById('chat-stage-timeline'),
+            chatFlowPanel: document.getElementById('chat-flow-panel'),
         };
     }
 
-    // =========================================================
-    //  视图切换
-    // =========================================================
     function switchToChatView(burgerJSON) {
-        currentBurgerJSON = burgerJSON;
+        currentBurgerJSON = { ...burgerJSON };
+        currentRecipe = BurgerGame.Recipes && BurgerGame.Recipes.getRecipe(burgerJSON.agent_type);
         chatHistory = [];
         threadId = null;
         capabilities = {};
         pendingApproval = null;
+        currentRunState = null;
 
         if (!els.buildView) cacheElements();
 
-        renderConfigSummary(burgerJSON);
-        els.chatMessages.innerHTML = '';
+        renderConfigSummary(currentBurgerJSON);
+        renderSceneOverview(currentRecipe);
+        resetRunState();
 
-        appendMessage('ai', `🍔 你好！我是根据你搭建的汉堡 Agent 生成的助手。\n\n**配置信息**：\n- 模型：\`${burgerJSON.meat_model || 'qwen-plus'}\`\n- 配方：${burgerJSON.agent_label || '-'}\n- 工具：${(burgerJSON.vegetables || []).length > 0 ? burgerJSON.vegetables.join(', ') : '无'}\n\n请输入消息开始对话吧！`);
+        els.chatMessages.innerHTML = '';
+        appendMessage('ai', `🍔 你好！我是根据你搭建的汉堡 Agent 生成的助手。\n\n**配置信息**：\n- 模型：\`${currentBurgerJSON.meat_model || 'qwen-plus'}\`\n- 配方：${currentBurgerJSON.agent_label || '-'}\n- 工具：${(currentBurgerJSON.vegetables || []).length > 0 ? currentBurgerJSON.vegetables.join(', ') : '无'}\n\n请输入消息开始对话吧！`);
 
         els.buildView.classList.add('view-hidden');
         els.chatView.classList.add('view-visible');
 
         setTimeout(() => { els.chatInput.focus(); }, 400);
 
-        buildAgentOnServer(burgerJSON);
+        buildAgentOnServer(currentBurgerJSON);
     }
 
     function switchToBuildView() {
@@ -69,12 +72,16 @@ window.BurgerGame = window.BurgerGame || {};
         const toolCount = (json.vegetables || []).length;
         const agentLabel = json.agent_label || '传统 LLM 对话';
         const agentEmoji = {
+            intent_tool_agent: '🧅🤖',
+            intent_approval_tool_agent: '🧅🛡️',
+            approval_tool_agent: '🛡️',
             tool_agent: '🤖',
             default_tool_agent: '🔧',
             guided_chat: '🎯',
             basic_chat: '💬',
             memory_chat: '🧠',
-            approval_tool_agent: '🛡️',
+            router_chat: '🧅',
+            scored_chat: '🌶️',
         }[json.agent_type] || '🍔';
 
         const capChips = [];
@@ -83,16 +90,142 @@ window.BurgerGame = window.BurgerGame || {};
         if (capabilities.hitl) capChips.push('🛡️ 审批');
 
         els.chatConfigSummary.innerHTML = `
-            <span class="config-chip" style="background:rgba(108,92,231,0.15);border-color:rgba(108,92,231,0.35);color:#a29bfe;">${agentEmoji} ${agentLabel}</span>
-            <span class="config-chip">🥩 ${model}</span>
+            <span class="config-chip" style="background:rgba(108,92,231,0.15);border-color:rgba(108,92,231,0.35);color:#a29bfe;">${agentEmoji} ${escapeHtml(agentLabel)}</span>
+            <span class="config-chip">🥩 ${escapeHtml(model)}</span>
             ${toolCount > 0 ? `<span class="config-chip">🥬 ${toolCount} 工具</span>` : ''}
             ${capChips.map((c) => `<span class="config-chip" style="background:rgba(46,204,113,0.12);border-color:rgba(46,204,113,0.3);color:#2ecc71;">${c}</span>`).join('')}
         `;
     }
 
-    // =========================================================
-    //  构建后端 Agent
-    // =========================================================
+    function renderSceneOverview(recipe) {
+        if (!els.chatSceneOverview || !els.chatFlowPanel) return;
+        if (!recipe) {
+            els.chatFlowPanel.classList.add('is-hidden');
+            els.chatSceneOverview.innerHTML = '';
+            if (els.chatStageTimeline) els.chatStageTimeline.innerHTML = '';
+            return;
+        }
+
+        const scene = recipe.scene || {};
+        const roles = (scene.roles || []).map((role) => `
+            <span class="chat-role-chip ${role.active ? 'is-active' : 'is-muted'}">${escapeHtml(role.label || role.key || '')}</span>
+        `).join('');
+
+        els.chatFlowPanel.classList.remove('is-hidden');
+        els.chatSceneOverview.innerHTML = `
+            <div class="chat-scene-copy">
+                <div class="chat-scene-kicker">当前协作模式</div>
+                <div class="chat-scene-title">${recipe.emoji} ${escapeHtml(recipe.label)}</div>
+                <div class="chat-scene-focus">${escapeHtml(scene.focus || recipe.description || '')}</div>
+            </div>
+            <div class="chat-scene-meta">
+                <span class="chat-scene-badge">${escapeHtml(scene.badge || '标准')}</span>
+                <div class="chat-role-row">${roles}</div>
+            </div>
+        `;
+    }
+
+    function createRunState() {
+        const scene = (currentRecipe && currentRecipe.scene) || {};
+        const fallbackStages = [
+            { key: 'answer', label: '生成回复', actor: 'ai' },
+        ];
+        const stages = (scene.stages && scene.stages.length ? scene.stages : fallbackStages).map((stage) => ({
+            key: stage.key,
+            label: stage.label,
+            actor: stage.actor,
+        }));
+        const statusByKey = {};
+        stages.forEach((stage) => {
+            statusByKey[stage.key] = 'idle';
+        });
+        return {
+            stages,
+            statusByKey,
+            emittedCards: new Set(),
+            hasIntent: false,
+            hasToolPlan: false,
+            hasApproval: false,
+            hasToolResult: false,
+        };
+    }
+
+    function resetRunState() {
+        currentRunState = createRunState();
+        renderStageTimeline();
+    }
+
+    function ensureRunState() {
+        if (!currentRunState) resetRunState();
+        return currentRunState;
+    }
+
+    function hasStage(stageKey) {
+        const run = ensureRunState();
+        return run.stages.some((stage) => stage.key === stageKey);
+    }
+
+    function setStageStatus(stageKey, status) {
+        const run = ensureRunState();
+        if (!run.statusByKey.hasOwnProperty(stageKey)) return;
+
+        const current = run.statusByKey[stageKey];
+        if (current === 'done' && status === 'active') return;
+        if (current === 'waiting' && status === 'active') return;
+        if (current === 'skipped' && status !== 'done') return;
+
+        run.statusByKey[stageKey] = status;
+        renderStageTimeline();
+    }
+
+    function markStageSkipped(stageKey) {
+        const run = ensureRunState();
+        if (!run.statusByKey.hasOwnProperty(stageKey)) return;
+        if (run.statusByKey[stageKey] === 'idle') {
+            run.statusByKey[stageKey] = 'skipped';
+            renderStageTimeline();
+        }
+    }
+
+    function finalizeStageStatuses() {
+        const run = ensureRunState();
+
+        if (hasStage('intent') && !run.hasIntent) {
+            markStageSkipped('intent');
+        }
+        if (hasStage('plan') && !run.hasToolPlan && !run.hasToolResult && !run.hasApproval) {
+            markStageSkipped('plan');
+        }
+        if (hasStage('approval') && !run.hasApproval) {
+            markStageSkipped('approval');
+        }
+        if (hasStage('tool') && !run.hasToolResult) {
+            markStageSkipped('tool');
+        }
+        if (hasStage('answer')) {
+            setStageStatus('answer', 'done');
+        }
+    }
+
+    function renderStageTimeline() {
+        if (!els.chatStageTimeline) return;
+        const run = ensureRunState();
+        if (!run.stages.length) {
+            els.chatStageTimeline.innerHTML = '';
+            return;
+        }
+
+        els.chatStageTimeline.innerHTML = run.stages.map((stage) => {
+            const status = run.statusByKey[stage.key] || 'idle';
+            return `
+                <div class="timeline-stage is-${status}" data-actor="${escapeHtml(stage.actor || '')}">
+                    <span class="timeline-dot"></span>
+                    <span class="timeline-label">${escapeHtml(stage.label)}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
     async function buildAgentOnServer(json) {
         setStatus('connecting');
         try {
@@ -105,8 +238,12 @@ window.BurgerGame = window.BurgerGame || {};
                 const data = await resp.json();
                 threadId = data.thread_id || null;
                 capabilities = data.capabilities || {};
-                // 重新渲染以显示能力 chip
+                currentBurgerJSON.agent_type = data.agent_type || currentBurgerJSON.agent_type;
+                currentBurgerJSON.agent_label = data.agent_label || currentBurgerJSON.agent_label;
+                currentRecipe = BurgerGame.Recipes && BurgerGame.Recipes.getRecipe(currentBurgerJSON.agent_type);
                 renderConfigSummary(currentBurgerJSON);
+                renderSceneOverview(currentRecipe);
+                resetRunState();
                 setStatus('connected');
             } else {
                 setStatus('error');
@@ -118,9 +255,6 @@ window.BurgerGame = window.BurgerGame || {};
         }
     }
 
-    // =========================================================
-    //  发送消息（SSE 流式 + 多轮 + 节点高亮）
-    // =========================================================
     async function sendMessage() {
         if (isWaiting) return;
         if (!threadId) {
@@ -135,6 +269,7 @@ window.BurgerGame = window.BurgerGame || {};
         els.chatInput.value = '';
         chatHistory.push({ role: 'user', content: text });
 
+        resetRunState();
         const thinkingId = appendMessage('ai', '', true);
         isWaiting = true;
         setInputEnabled(false);
@@ -142,19 +277,13 @@ window.BurgerGame = window.BurgerGame || {};
         await streamChat(thinkingId, { message: text });
     }
 
-    /**
-     * 通用 SSE 消费器
-     * @param {string} thinkingMsgId - 要被替换的 "thinking" 气泡 id
-     * @param {object} payload - 传给 /api/chat/stream 的 body（resume 时可不含 message）
-     * @param {string} url - 接口路径
-     */
     async function streamChat(thinkingMsgId, payload, url) {
         url = url || '/api/chat/stream';
         payload = { thread_id: threadId, ...payload };
 
         const nodeEvents = [];
         let finalText = '';
-        let streamedText = '';      // 🌊 LLM token 流累积
+        let streamedText = '';
         let interrupted = false;
 
         try {
@@ -180,7 +309,6 @@ window.BurgerGame = window.BurgerGame || {};
                 if (done) break;
                 buffer += decoder.decode(value, { stream: true });
 
-                // 解析 SSE: 按空行分块
                 let idx;
                 while ((idx = buffer.indexOf('\n\n')) !== -1) {
                     const raw = buffer.slice(0, idx);
@@ -201,10 +329,10 @@ window.BurgerGame = window.BurgerGame || {};
                     handleStreamEvent(ev, {
                         onNode: (name, status) => {
                             nodeEvents.push({ name, status });
+                            syncTimelineFromNode(name, status);
                             if (BurgerGame.Canvas && BurgerGame.Canvas.highlightLayer) {
                                 BurgerGame.Canvas.highlightLayer(name, status);
                             }
-                            // 有 streaming 文本时，trace 合并显示在气泡底部
                             if (!streamedText) {
                                 updateThinkingTrace(thinkingMsgId, nodeEvents);
                             } else {
@@ -213,6 +341,7 @@ window.BurgerGame = window.BurgerGame || {};
                         },
                         onTool: (name, status, extra) => {
                             nodeEvents.push({ kind: 'tool', name, status, ...extra });
+                            syncTimelineFromTool(name, status, extra, thinkingMsgId);
                             if (!streamedText) {
                                 updateThinkingTrace(thinkingMsgId, nodeEvents);
                             } else {
@@ -223,12 +352,29 @@ window.BurgerGame = window.BurgerGame || {};
                             streamedText += text;
                             updateStreamingBubble(thinkingMsgId, streamedText, nodeEvents);
                         },
+                        onIntent: (payload) => {
+                            const run = ensureRunState();
+                            run.hasIntent = true;
+                            setStageStatus('intent', 'done');
+                            appendStageCard('intent', payload, thinkingMsgId, `intent:${payload.intent}`);
+                        },
+                        onPlan: (payload) => {
+                            const run = ensureRunState();
+                            run.hasToolPlan = true;
+                            setStageStatus('plan', 'done');
+                            appendStageCard('plan', payload, thinkingMsgId, `plan:${(payload.tool_calls || []).map((tc) => tc.name).join(',')}`);
+                        },
                         onFinal: (reply) => {
                             finalText = reply || streamedText || '(空回复)';
+                            finalizeStageStatuses();
                         },
                         onInterrupt: (pending) => {
                             interrupted = true;
                             pendingApproval = pending;
+                            const run = ensureRunState();
+                            run.hasApproval = true;
+                            setStageStatus('approval', 'waiting');
+                            setStatus('approval');
                         },
                         onError: (detail) => {
                             replaceThinking(thinkingMsgId, `❌ ${detail}`);
@@ -241,20 +387,23 @@ window.BurgerGame = window.BurgerGame || {};
                 replaceThinking(
                     thinkingMsgId,
                     renderApprovalHTML(pendingApproval),
-                    /*raw=*/true
+                    true
                 );
                 bindApprovalButtons(thinkingMsgId);
             } else if (finalText) {
-                replaceThinking(thinkingMsgId, finalText);
+                replaceThinkingWithFinal(thinkingMsgId, finalText);
                 chatHistory.push({ role: 'ai', content: finalText });
+                setStatus('connected');
             } else if (streamedText) {
-                // 没有收到 final 但有流式文本（例如只走 meat 节点就结束）
-                replaceThinking(thinkingMsgId, streamedText);
+                finalizeStageStatuses();
+                replaceThinkingWithFinal(thinkingMsgId, streamedText);
                 chatHistory.push({ role: 'ai', content: streamedText });
+                setStatus('connected');
             }
         } catch (err) {
             console.error(err);
             replaceThinking(thinkingMsgId, '❌ 流式通信错误：' + err.message);
+            setStatus('error');
         } finally {
             if (!interrupted) finishTurn();
         }
@@ -267,6 +416,10 @@ window.BurgerGame = window.BurgerGame || {};
             handlers.onTool(ev.name, ev.status, { input: ev.input, output: ev.output });
         } else if (ev.type === 'token') {
             handlers.onToken(ev.text || '');
+        } else if (ev.type === 'intent') {
+            handlers.onIntent(ev);
+        } else if (ev.type === 'tool_plan') {
+            handlers.onPlan(ev);
         } else if (ev.type === 'final') {
             handlers.onFinal(ev.reply);
         } else if (ev.type === 'interrupt') {
@@ -276,29 +429,73 @@ window.BurgerGame = window.BurgerGame || {};
         }
     }
 
+    function syncTimelineFromNode(name, status) {
+        if (name === 'onion' && status === 'start') {
+            setStageStatus('intent', 'active');
+        }
+        if (name === 'meat' && status === 'start' && hasStage('plan')) {
+            const run = ensureRunState();
+            if (!run.hasToolPlan && !run.hasToolResult) {
+                setStageStatus('plan', 'active');
+            }
+        }
+        if (name === 'pickle' && status === 'start') {
+            setStageStatus('approval', 'done');
+        }
+        if (name === 'vegetable' && status === 'start') {
+            setStageStatus('tool', 'active');
+        }
+        if (name === 'bottom_bread' && status === 'start') {
+            setStageStatus('answer', 'active');
+        }
+    }
+
+    function syncTimelineFromTool(name, status, extra, thinkingMsgId) {
+        if (status === 'start') {
+            setStageStatus('tool', 'active');
+            return;
+        }
+
+        const run = ensureRunState();
+        run.hasToolResult = true;
+        setStageStatus('tool', 'done');
+        appendStageCard('tool', {
+            name,
+            output: extra.output,
+        }, thinkingMsgId, `tool:${name}:${extra.output || ''}`);
+    }
+
     function finishTurn() {
         isWaiting = false;
         setInputEnabled(true);
         els.chatInput.focus();
     }
 
-    // =========================================================
-    //  HITL 审批 UI
-    // =========================================================
     function renderApprovalHTML(pending) {
         const hint = (pending && pending.hint) || '是否允许执行以下工具调用？';
         const calls = (pending && pending.tool_calls) || [];
         const callsHTML = calls.length === 0
-            ? '<div style="color:var(--text-muted);font-size:0.85rem;">(无工具调用信息)</div>'
+            ? '<div class="approval-empty">(无工具调用信息)</div>'
             : calls.map((c) => `
                 <div class="approval-call">
-                    <code>${escapeHtml(c.name || '?')}</code>
-                    <pre class="msg-code" style="margin-top:4px;">${escapeHtml(JSON.stringify(c.args || {}, null, 2))}</pre>
+                    <div class="approval-call-name">🔧 ${escapeHtml(c.name || '?')}</div>
+                    <pre class="msg-code approval-code">${escapeHtml(JSON.stringify(c.args || {}, null, 2))}</pre>
                 </div>`).join('');
         return `
             <div class="approval-card">
-                <div class="approval-hint">🛡️ ${escapeHtml(hint)}</div>
-                ${callsHTML}
+                <div class="approval-head">
+                    <div class="approval-hint">🛡️ 待你决定</div>
+                    <span class="approval-status">等待审批</span>
+                </div>
+                <div class="approval-summary">${escapeHtml(hint)}</div>
+                <div class="approval-section">
+                    <div class="approval-section-title">AI 提出的执行计划</div>
+                    ${callsHTML}
+                </div>
+                <div class="approval-section">
+                    <div class="approval-section-title">批准后会发生什么</div>
+                    <div class="approval-note">系统会执行这些工具，再回到模型整合结果后继续回复。</div>
+                </div>
                 <div class="approval-actions">
                     <button class="approval-btn approval-approve" data-action="approve">✅ 批准</button>
                     <button class="approval-btn approval-reject" data-action="reject">🚫 拒绝</button>
@@ -319,15 +516,18 @@ window.BurgerGame = window.BurgerGame || {};
         const el = document.getElementById(thinkingMsgId);
         if (el) {
             const actions = el.querySelector('.approval-actions');
-            if (actions) actions.innerHTML = `<span style="color:var(--text-muted);">⏳ ${approved ? '执行中...' : '拒绝中...'}</span>`;
+            if (actions) actions.innerHTML = `<span class="approval-pending">⏳ ${approved ? '执行中...' : '拒绝中...'}</span>`;
         }
 
+        setStageStatus('approval', 'done');
+
         if (approved) {
-            // 继续：使用 SSE 继续执行（新气泡展示结果）
+            setStatus('connected');
             const nextId = appendMessage('ai', '', true);
             await streamChat(nextId, { message: null, approved: true }, '/api/chat/resume');
         } else {
-            // 拒绝：非流式调用即可
+            markStageSkipped('tool');
+            setStageStatus('answer', 'active');
             try {
                 const resp = await fetch('/api/chat/resume', {
                     method: 'POST',
@@ -337,14 +537,29 @@ window.BurgerGame = window.BurgerGame || {};
                 const data = await resp.json().catch(() => ({}));
                 const msg = data.reply || '（已拒绝执行）';
                 if (el) {
-                    el.querySelector('.msg-bubble').innerHTML = formatMessage('🚫 ' + msg);
+                    el.querySelector('.msg-bubble').innerHTML = renderApprovalResolvedHTML(false, msg);
                 }
+                finalizeStageStatuses();
                 chatHistory.push({ role: 'ai', content: msg });
+                setStatus('connected');
             } catch (err) {
                 if (el) el.querySelector('.msg-bubble').innerHTML = '❌ 拒绝失败：' + err.message;
+                setStatus('error');
             }
             finishTurn();
         }
+    }
+
+    function renderApprovalResolvedHTML(approved, message) {
+        return `
+            <div class="approval-card approval-card-resolved ${approved ? 'is-approved' : 'is-rejected'}">
+                <div class="approval-head">
+                    <div class="approval-hint">${approved ? '✅ 已批准' : '🚫 已拒绝'}</div>
+                    <span class="approval-status">${approved ? '已继续执行' : '已跳过工具执行'}</span>
+                </div>
+                <div class="approval-note">${formatMessage(message)}</div>
+            </div>
+        `;
     }
 
     function updateThinkingTrace(msgId, events) {
@@ -359,9 +574,6 @@ window.BurgerGame = window.BurgerGame || {};
         scrollToBottom();
     }
 
-    /**
-     * 流式渲染 LLM token：累积文本 + 底部节点/工具轨迹。
-     */
     function updateStreamingBubble(msgId, text, events) {
         const el = document.getElementById(msgId);
         if (!el) return;
@@ -385,10 +597,72 @@ window.BurgerGame = window.BurgerGame || {};
         }).join(' ');
     }
 
-    // =========================================================
-    //  消息渲染
-    // =========================================================
-    let msgCounter = 0;
+    function appendStageCard(kind, payload, beforeMsgId, dedupeKey) {
+        const run = ensureRunState();
+        if (dedupeKey && run.emittedCards.has(dedupeKey)) return null;
+        if (dedupeKey) run.emittedCards.add(dedupeKey);
+
+        const id = 'stage-' + (++msgCounter);
+        const entry = document.createElement('div');
+        entry.className = `chat-stage-entry chat-stage-entry-${kind}`;
+        entry.id = id;
+        entry.innerHTML = renderStageCardHTML(kind, payload);
+
+        const beforeEl = beforeMsgId ? document.getElementById(beforeMsgId) : null;
+        if (beforeEl) {
+            els.chatMessages.insertBefore(entry, beforeEl);
+        } else {
+            els.chatMessages.appendChild(entry);
+        }
+        scrollToBottom();
+        return id;
+    }
+
+    function renderStageCardHTML(kind, payload) {
+        if (kind === 'intent') {
+            return `
+                <div class="stage-card stage-card-intent">
+                    <div class="stage-card-head">
+                        <span class="stage-card-kicker">意图识别</span>
+                        <span class="stage-card-title">🧅 洋葱已完成分类</span>
+                    </div>
+                    <div class="stage-card-body">
+                        <span class="stage-emphasis">${escapeHtml(payload.label || payload.intent || '未知')}</span>
+                    </div>
+                </div>`;
+        }
+
+        if (kind === 'plan') {
+            const calls = payload.tool_calls || [];
+            const callsHTML = calls.map((call) => `<span class="stage-tool-chip">${escapeHtml(call.name || '?')}</span>`).join('');
+            return `
+                <div class="stage-card stage-card-plan">
+                    <div class="stage-card-head">
+                        <span class="stage-card-kicker">工具规划</span>
+                        <span class="stage-card-title">🥩 AI 已生成工具计划</span>
+                    </div>
+                    <div class="stage-card-body">
+                        <div class="stage-tool-row">${callsHTML}</div>
+                        ${payload.summary ? `<div class="stage-card-note">${escapeHtml(payload.summary)}</div>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        if (kind === 'tool') {
+            return `
+                <div class="stage-card stage-card-tool">
+                    <div class="stage-card-head">
+                        <span class="stage-card-kicker">工具结果</span>
+                        <span class="stage-card-title">🥬 ${escapeHtml(payload.name || '工具')} 已返回结果</span>
+                    </div>
+                    <div class="stage-card-body">
+                        <div class="stage-card-note">${escapeHtml(payload.output || '工具执行完成')}</div>
+                    </div>
+                </div>`;
+        }
+
+        return '';
+    }
 
     function appendMessage(role, content, isThinking) {
         const id = 'msg-' + (++msgCounter);
@@ -442,6 +716,25 @@ window.BurgerGame = window.BurgerGame || {};
         scrollToBottom();
     }
 
+    function replaceThinkingWithFinal(id, content) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const bubble = el.querySelector('.msg-bubble');
+        if (!bubble) return;
+
+        const stages = (ensureRunState().stages || []).filter((stage) => {
+            const status = ensureRunState().statusByKey[stage.key];
+            return status === 'done';
+        }).map((stage) => stage.label);
+
+        const pathHTML = stages.length
+            ? `<div class="msg-path-tag">本轮路径：${escapeHtml(stages.join(' → '))}</div>`
+            : '';
+
+        bubble.innerHTML = `${pathHTML}${formatMessage(content)}`;
+        scrollToBottom();
+    }
+
     function scrollToBottom() {
         requestAnimationFrame(() => {
             els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
@@ -468,6 +761,7 @@ window.BurgerGame = window.BurgerGame || {};
         const labels = {
             connecting: '🔄 连接中...',
             connected: '🟢 已连接',
+            approval: '⏸️ 等待审批',
             error: '🔴 未连接',
         };
         els.chatStatus.textContent = labels[status] || '';
@@ -479,9 +773,6 @@ window.BurgerGame = window.BurgerGame || {};
         els.chatSendBtn.disabled = !enabled;
     }
 
-    // =========================================================
-    //  下载后端文件（保留原逻辑）
-    // =========================================================
     async function downloadBackend() {
         if (!currentBurgerJSON) {
             BurgerGame.showToast('请先搭建汉堡！', 'error');
@@ -525,9 +816,6 @@ window.BurgerGame = window.BurgerGame || {};
         }
     }
 
-    // =========================================================
-    //  事件绑定
-    // =========================================================
     function bindEvents() {
         cacheElements();
         if (els.chatSendBtn) els.chatSendBtn.addEventListener('click', sendMessage);

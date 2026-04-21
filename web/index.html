@@ -158,6 +158,7 @@
             <div id="canvas-container"></div>
             <!-- 配方识别提示条 -->
             <div id="recipe-hint" class="recipe-hint recipe-hint-empty"></div>
+            <div id="recipe-scene-panel" class="recipe-scene-panel recipe-scene-panel-hidden"></div>
         </main>
 
         <!-- ========== 右侧面板 — 属性编辑 + JSON 预览 ========== -->
@@ -202,6 +203,11 @@
                 <button class="chat-btn-download" id="chat-download-btn">📥 下载后端</button>
             </div>
         </header>
+
+        <section class="chat-flow-panel" id="chat-flow-panel">
+            <div class="chat-scene-overview" id="chat-scene-overview"></div>
+            <div class="chat-stage-timeline" id="chat-stage-timeline"></div>
+        </section>
 
         <!-- 消息区域 -->
         <div class="chat-messages" id="chat-messages">

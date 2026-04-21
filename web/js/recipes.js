@@ -50,6 +50,7 @@ window.BurgerGame = window.BurgerGame || {};
             label: r.label,
             description: r.description || '',
             emoji: r.emoji || '🍔',
+            scene: r.scene || {},
             requiredSet: r.required_set || [],
             forbidden: r.forbidden || [],
             capabilities: r.capabilities || {},

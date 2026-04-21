@@ -177,6 +177,7 @@ window.BurgerGame = window.BurgerGame || {};
         if (layerTypes.length === 0) {
             hintEl.innerHTML = '';
             hintEl.className = 'recipe-hint recipe-hint-empty';
+            renderRecipeScenePanel(null);
             return;
         }
 
@@ -189,19 +190,22 @@ window.BurgerGame = window.BurgerGame || {};
                     <span class="recipe-desc">${validation.error.replace('❌ ', '')}</span>
                 </span>`;
             hintEl.className = 'recipe-hint recipe-hint-warn';
+            renderRecipeScenePanel(null);
             return;
         }
 
         // 配方匹配
         const recipe = BurgerGame.Recipes.matchRecipe(layerTypes);
         if (recipe) {
+            const scene = recipe.scene || {};
             hintEl.innerHTML = `<span class="recipe-icon">${recipe.emoji}</span>
                 <span class="recipe-info">
-                    <span class="recipe-name-tag">识别到配方</span>
+                    <span class="recipe-name-tag">识别到配方 · ${escapeHtml(scene.badge || '标准')}</span>
                     <span class="recipe-label">${recipe.label}</span>
-                    <span class="recipe-desc">${recipe.description}</span>
+                    <span class="recipe-desc">${escapeHtml(scene.focus || recipe.description || '')}</span>
                 </span>`;
             hintEl.className = 'recipe-hint recipe-hint-match';
+            renderRecipeScenePanel(recipe);
             if (canvas.setRecipe) canvas.setRecipe(recipe);
         } else {
             hintEl.innerHTML = `<span class="recipe-icon">🔍</span>
@@ -210,8 +214,40 @@ window.BurgerGame = window.BurgerGame || {};
                     <span class="recipe-desc">当前食材组合不在已知配方中，仍可尝试构建</span>
                 </span>`;
             hintEl.className = 'recipe-hint recipe-hint-unknown';
+            renderRecipeScenePanel(null);
             if (canvas.setRecipe) canvas.setRecipe(null);
         }
+    }
+
+    function renderRecipeScenePanel(recipe) {
+        const panel = document.getElementById('recipe-scene-panel');
+        if (!panel) return;
+        if (!recipe) {
+            panel.innerHTML = '';
+            panel.className = 'recipe-scene-panel recipe-scene-panel-hidden';
+            return;
+        }
+
+        const scene = recipe.scene || {};
+        const rolesHTML = renderRoleBadges(scene.roles || [], 'scene-role');
+        const stagesHTML = renderStagePills(scene.stages || [], 'scene-stage');
+        const samples = (scene.sample_prompts || []).slice(0, 2);
+        const samplesHTML = samples.map((sample) => `<span class="scene-sample">${escapeHtml(sample)}</span>`).join('');
+
+        panel.innerHTML = `
+            <div class="scene-panel-head">
+                <div>
+                    <div class="scene-panel-kicker">当前组合如何协作</div>
+                    <div class="scene-panel-title">${recipe.emoji} ${escapeHtml(recipe.label)}</div>
+                </div>
+                <span class="scene-mode-badge">${escapeHtml(scene.badge || '标准')}</span>
+            </div>
+            <div class="scene-panel-focus">${escapeHtml(scene.focus || recipe.description || '')}</div>
+            ${rolesHTML ? `<div class="scene-role-row">${rolesHTML}</div>` : ''}
+            ${stagesHTML ? `<div class="scene-stage-row">${stagesHTML}</div>` : ''}
+            ${samplesHTML ? `<div class="scene-sample-row">${samplesHTML}</div>` : ''}
+        `;
+        panel.className = 'recipe-scene-panel';
     }
 
     // =========================================================
@@ -363,6 +399,7 @@ window.BurgerGame = window.BurgerGame || {};
             return;
         }
         el.innerHTML = recipes.map((r) => {
+            const scene = r.scene || {};
             const caps = r.capabilities || {};
             const capsHtml = [
                 caps.checkpoint ? '<span class="rg-cap">💾</span>' : '',
@@ -370,13 +407,22 @@ window.BurgerGame = window.BurgerGame || {};
                 caps.hitl ? '<span class="rg-cap">🛡️</span>' : '',
             ].join('');
             const layerDesc = (r.canvasLayers || []).map(layerLabel).join(' ＋ ');
+            const rolesHTML = renderRoleBadges(scene.roles || [], 'rg-role');
+            const stagesHTML = renderStagePills(scene.stages || [], 'rg-stage');
+            const sample = ((scene.sample_prompts || [])[0]) || '';
             return `
-                <div class="recipe-guide-item">
-                    <span class="rg-emoji">${r.emoji}</span>
-                    <span class="rg-content">
-                        <strong>${r.label} ${capsHtml}</strong>
-                        <span>${layerDesc}</span>
-                    </span>
+                <div class="recipe-guide-item ${scene.group === 'core' ? 'recipe-guide-item-core' : ''}">
+                    <div class="rg-head">
+                        <span class="rg-emoji">${r.emoji}</span>
+                        <span class="rg-content">
+                            <strong>${escapeHtml(r.label)} <span class="rg-badge">${escapeHtml(scene.badge || '标准')}</span> ${capsHtml}</strong>
+                            <span class="rg-focus">${escapeHtml(scene.focus || r.description || '')}</span>
+                        </span>
+                    </div>
+                    ${stagesHTML ? `<div class="rg-stage-row">${stagesHTML}</div>` : ''}
+                    ${rolesHTML ? `<div class="rg-role-row">${rolesHTML}</div>` : ''}
+                    <div class="rg-layerline">食材：${escapeHtml(layerDesc)}</div>
+                    ${sample ? `<div class="rg-sample">例如：${escapeHtml(sample)}</div>` : ''}
                 </div>`;
         }).join('');
     }
@@ -390,20 +436,30 @@ window.BurgerGame = window.BurgerGame || {};
             return;
         }
         el.innerHTML = recipes.map((r) => {
+            const scene = r.scene || {};
             const caps = r.capabilities || {};
             const capChips = [
                 caps.checkpoint ? '<span class="rp-cap" title="多轮记忆">💾</span>' : '',
                 caps.streaming ? '<span class="rp-cap" title="流式输出">🌊</span>' : '',
                 caps.hitl ? '<span class="rp-cap" title="人类审批">🛡️</span>' : '',
             ].join('');
+            const stagesHTML = renderStagePills(scene.stages || [], 'rp-stage');
+            const rolesHTML = renderRoleBadges(scene.roles || [], 'rp-role');
+            const sample = ((scene.sample_prompts || [])[0]) || '';
+            const layerDesc = (r.canvasLayers || []).map(layerLabel).join(' ＋ ');
             return `
-                <button class="recipe-picker-card" data-name="${r.name}">
+                <button class="recipe-picker-card ${scene.group === 'core' ? 'recipe-picker-core' : ''}" data-name="${r.name}">
                     <div class="rp-head">
                         <span class="rp-emoji">${r.emoji}</span>
-                        <span class="rp-label">${r.label}</span>
+                        <span class="rp-label">${escapeHtml(r.label)}</span>
+                        <span class="rp-badge">${escapeHtml(scene.badge || '标准')}</span>
                         <span class="rp-caps">${capChips}</span>
                     </div>
-                    <div class="rp-desc">${r.description || ''}</div>
+                    <div class="rp-focus">${escapeHtml(scene.focus || r.description || '')}</div>
+                    ${stagesHTML ? `<div class="rp-stage-row">${stagesHTML}</div>` : ''}
+                    ${rolesHTML ? `<div class="rp-role-row">${rolesHTML}</div>` : ''}
+                    <div class="rp-desc">食材：${escapeHtml(layerDesc)}</div>
+                    ${sample ? `<div class="rp-sample">例如：${escapeHtml(sample)}</div>` : ''}
                 </button>`;
         }).join('');
 
@@ -421,12 +477,51 @@ window.BurgerGame = window.BurgerGame || {};
         if (!r) return;
         selectedRecipeName = name;
         canvas.loadRecipeLayers(r.canvasLayers || []);
+        applyRecipeDefaults(r);
         showToast(`已应用配方：${r.emoji} ${r.label}`, 'info');
+    }
+
+    function applyRecipeDefaults(recipe) {
+        const defaults = (recipe && recipe.defaultConfig) || {};
+        const layerCount = (recipe && recipe.canvasLayers && recipe.canvasLayers.length) || 0;
+        const delay = Math.max(300, layerCount * 100 + 120);
+
+        setTimeout(() => {
+            canvas.layers.forEach((layer) => {
+                if (layer.meta.id === 'lettuce' && (!layer.config.tools || !layer.config.tools.length)) {
+                    layer.config.tools = (defaults.default_tools || ['get_weather', 'calculate_add']).slice();
+                }
+                if (layer.meta.id === 'cheese' && defaults.cheese_prompt && !layer.config.prompt) {
+                    layer.config.prompt = defaults.cheese_prompt;
+                }
+                if (layer.meta.id === 'meat_patty' && !layer.config.model) {
+                    layer.config.model = 'qwen-plus';
+                }
+            });
+        }, delay);
     }
 
     function layerLabel(id) {
         const meta = BurgerGame.IngredientTypes && BurgerGame.IngredientTypes[id];
         return meta ? meta.name : id;
+    }
+
+    function renderStagePills(stages, baseClass) {
+        return (stages || []).map((stage) => `
+            <span class="${baseClass}" data-actor="${escapeHtml(stage.actor || '')}">${escapeHtml(stage.label || stage.key || '')}</span>
+        `).join('');
+    }
+
+    function renderRoleBadges(roles, baseClass) {
+        return (roles || []).map((role) => `
+            <span class="${baseClass} ${role.active ? 'is-active' : 'is-muted'}" data-role="${escapeHtml(role.key || '')}">${escapeHtml(role.label || role.key || '')}</span>
+        `).join('');
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str == null ? '' : String(str);
+        return div.innerHTML;
     }
 
     // =========================================================
