@@ -55,6 +55,9 @@ window.BurgerGame = window.BurgerGame || {};
             capabilities: r.capabilities || {},
             canvasLayers: r.canvas_layers || [],
             defaultConfig: r.default_config || {},
+            edges: r.edges || [],
+            conditional_edges: r.conditional_edges || [],
+            nodes: r.nodes || [],
         };
     }
 

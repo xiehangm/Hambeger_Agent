@@ -154,6 +154,7 @@ window.BurgerGame = window.BurgerGame || {};
 
         const nodeEvents = [];
         let finalText = '';
+        let streamedText = '';      // 🌊 LLM token 流累积
         let interrupted = false;
 
         try {
@@ -203,14 +204,27 @@ window.BurgerGame = window.BurgerGame || {};
                             if (BurgerGame.Canvas && BurgerGame.Canvas.highlightLayer) {
                                 BurgerGame.Canvas.highlightLayer(name, status);
                             }
-                            updateThinkingTrace(thinkingMsgId, nodeEvents);
+                            // 有 streaming 文本时，trace 合并显示在气泡底部
+                            if (!streamedText) {
+                                updateThinkingTrace(thinkingMsgId, nodeEvents);
+                            } else {
+                                updateStreamingBubble(thinkingMsgId, streamedText, nodeEvents);
+                            }
                         },
-                        onTool: (name, status) => {
-                            nodeEvents.push({ kind: 'tool', name, status });
-                            updateThinkingTrace(thinkingMsgId, nodeEvents);
+                        onTool: (name, status, extra) => {
+                            nodeEvents.push({ kind: 'tool', name, status, ...extra });
+                            if (!streamedText) {
+                                updateThinkingTrace(thinkingMsgId, nodeEvents);
+                            } else {
+                                updateStreamingBubble(thinkingMsgId, streamedText, nodeEvents);
+                            }
+                        },
+                        onToken: (text) => {
+                            streamedText += text;
+                            updateStreamingBubble(thinkingMsgId, streamedText, nodeEvents);
                         },
                         onFinal: (reply) => {
-                            finalText = reply || '(空回复)';
+                            finalText = reply || streamedText || '(空回复)';
                         },
                         onInterrupt: (pending) => {
                             interrupted = true;
@@ -233,6 +247,10 @@ window.BurgerGame = window.BurgerGame || {};
             } else if (finalText) {
                 replaceThinking(thinkingMsgId, finalText);
                 chatHistory.push({ role: 'ai', content: finalText });
+            } else if (streamedText) {
+                // 没有收到 final 但有流式文本（例如只走 meat 节点就结束）
+                replaceThinking(thinkingMsgId, streamedText);
+                chatHistory.push({ role: 'ai', content: streamedText });
             }
         } catch (err) {
             console.error(err);
@@ -246,7 +264,9 @@ window.BurgerGame = window.BurgerGame || {};
         if (ev.type === 'node') {
             handlers.onNode(ev.name, ev.status);
         } else if (ev.type === 'tool') {
-            handlers.onTool(ev.name, ev.status);
+            handlers.onTool(ev.name, ev.status, { input: ev.input, output: ev.output });
+        } else if (ev.type === 'token') {
+            handlers.onToken(ev.text || '');
         } else if (ev.type === 'final') {
             handlers.onFinal(ev.reply);
         } else if (ev.type === 'interrupt') {
@@ -332,16 +352,37 @@ window.BurgerGame = window.BurgerGame || {};
         if (!el) return;
         const bubble = el.querySelector('.msg-bubble');
         if (!bubble) return;
-        const lastFew = events.slice(-4);
-        const trace = lastFew.map((e) => {
-            const icon = e.kind === 'tool' ? '🔧' : '⚙️';
-            const dot = e.status === 'start' ? '●' : '○';
-            return `<span class="trace-step" style="opacity:${e.status === 'start' ? 1 : 0.6};">${icon} ${escapeHtml(e.name)} ${dot}</span>`;
-        }).join(' ');
+        const traceHTML = renderTraceHTML(events);
         bubble.innerHTML = `
             <div class="thinking-dots"><span></span><span></span><span></span></div>
-            <div class="thinking-trace">${trace}</div>`;
+            <div class="thinking-trace">${traceHTML}</div>`;
         scrollToBottom();
+    }
+
+    /**
+     * 流式渲染 LLM token：累积文本 + 底部节点/工具轨迹。
+     */
+    function updateStreamingBubble(msgId, text, events) {
+        const el = document.getElementById(msgId);
+        if (!el) return;
+        const bubble = el.querySelector('.msg-bubble');
+        if (!bubble) return;
+        const traceHTML = renderTraceHTML(events);
+        bubble.innerHTML = `
+            <div class="msg-stream-text">${formatMessage(text)}<span class="stream-caret">▊</span></div>
+            ${traceHTML ? `<div class="thinking-trace thinking-trace-compact">${traceHTML}</div>` : ''}`;
+        scrollToBottom();
+    }
+
+    function renderTraceHTML(events) {
+        if (!events || events.length === 0) return '';
+        const lastFew = events.slice(-5);
+        return lastFew.map((e) => {
+            const icon = e.kind === 'tool' ? '🔧' : '⚙️';
+            const dot = e.status === 'start' ? '●' : '○';
+            const title = e.kind === 'tool' && e.output ? ` title="${escapeHtml(e.output)}"` : '';
+            return `<span class="trace-step" style="opacity:${e.status === 'start' ? 1 : 0.65};"${title}>${icon} ${escapeHtml(e.name)} ${dot}</span>`;
+        }).join(' ');
     }
 
     // =========================================================

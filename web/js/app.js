@@ -202,6 +202,7 @@ window.BurgerGame = window.BurgerGame || {};
                     <span class="recipe-desc">${recipe.description}</span>
                 </span>`;
             hintEl.className = 'recipe-hint recipe-hint-match';
+            if (canvas.setRecipe) canvas.setRecipe(recipe);
         } else {
             hintEl.innerHTML = `<span class="recipe-icon">🔍</span>
                 <span class="recipe-info">
@@ -209,6 +210,7 @@ window.BurgerGame = window.BurgerGame || {};
                     <span class="recipe-desc">当前食材组合不在已知配方中，仍可尝试构建</span>
                 </span>`;
             hintEl.className = 'recipe-hint recipe-hint-unknown';
+            if (canvas.setRecipe) canvas.setRecipe(null);
         }
     }
 

@@ -52,9 +52,13 @@ window.BurgerGame = window.BurgerGame || {};
 
             // 层级容器
             this.bgContainer = new PIXI.Container();
+            this.edgesContainer = new PIXI.Container();   // 🔗 LangGraph 边连线层
             this.layerContainer = new PIXI.Container();
             this.app.stage.addChild(this.bgContainer);
+            this.app.stage.addChild(this.edgesContainer);
             this.app.stage.addChild(this.layerContainer);
+
+            this.currentRecipe = null;     // 当前匹配的 recipe 蓝图（由外部 setRecipe 注入）
 
             this._drawBackground();
             this._drawPlate();
@@ -363,7 +367,176 @@ window.BurgerGame = window.BurgerGame || {};
                     layer.container.x = targetX;
                     layer.container.y = targetY;
                 }
+
+                // 记录最终位置，供连线使用
+                layer._finalY = targetY;
+                layer._finalX = targetX;
             }
+
+            // 连线要等动画结束再画；这里无动画时立即画，有动画时延时画
+            if (animated) {
+                clearTimeout(this._edgesRedrawT);
+                this._edgesRedrawT = setTimeout(() => this._drawEdges(), TWEEN_DURATION + 20);
+            } else {
+                this._drawEdges();
+            }
+        }
+
+        /**
+         * 🔗 根据当前 recipe 的 edges 画出 LangGraph 连线：
+         *   - 普通边：纯色竖线
+         *   - 条件边：紫色虚线 + 菱形节点（多分支）
+         *   - 回环 (meat → cheese)：贝塞尔曲线绕左侧
+         */
+        setRecipe(recipe) {
+            this.currentRecipe = recipe || null;
+            this._drawEdges();
+        }
+
+        _drawEdges() {
+            if (!this.edgesContainer) return;
+            this.edgesContainer.removeChildren();
+            if (!this.currentRecipe || this.layers.length < 2) return;
+
+            const edges = this.currentRecipe.edges || [];
+            if (!edges.length) return;
+
+            // 建立 nodeId → layer 的映射（通过 alias）
+            const aliasMap = {
+                top_bread: 'top_bread',
+                bottom_bread: 'bottom_bread',
+                cheese: 'cheese',
+                meat: 'meat_patty',
+                vegetable: 'lettuce',
+                pickle: 'pickle',
+                onion: 'onion',
+                chili: 'chili',
+                tomato: 'tomato',
+            };
+            const nodeToLayer = {};
+            for (const [id, ingType] of Object.entries(aliasMap)) {
+                const layer = this.layers.find((l) => l.meta.type === ingType);
+                if (layer) nodeToLayer[id] = layer;
+            }
+
+            const g = new PIXI.Graphics();
+
+            // 普通 edges
+            for (const e of edges) {
+                const fromLayer = nodeToLayer[e.from];
+                const toLayer = nodeToLayer[e.to];
+                if (!fromLayer || !toLayer) continue;
+                if (fromLayer === toLayer) continue;
+
+                const x1 = fromLayer._finalX || STACK_CENTER_X;
+                const y1 = fromLayer._finalY || 0;
+                const x2 = toLayer._finalX || STACK_CENTER_X;
+                const y2 = toLayer._finalY || 0;
+
+                // 从 from 层的底部画到 to 层的顶部（自动适配上下位置）
+                const fromBottom = y1 + fromLayer.meta.height / 2;
+                const fromTop = y1 - fromLayer.meta.height / 2;
+                const toBottom = y2 + toLayer.meta.height / 2;
+                const toTop = y2 - toLayer.meta.height / 2;
+
+                const goingUp = y2 < y1;
+                const sy = goingUp ? fromTop : fromBottom;
+                const ty = goingUp ? toBottom : toTop;
+
+                // 判断是不是回环（meat → cheese 之类向上的边）
+                if (goingUp) {
+                    // 🌀 绕左侧画贝塞尔曲线
+                    const offsetX = x1 - 120;
+                    g.lineStyle({ width: 2, color: 0x6c5ce7, alpha: 0.7 });
+                    g.moveTo(x1 - 40, sy);
+                    g.bezierCurveTo(offsetX, sy, offsetX, ty, x2 - 40, ty);
+                    g.lineStyle(0);
+                    // 箭头
+                    this._drawArrow(g, x2 - 40, ty, x2, ty, 0x6c5ce7);
+                } else {
+                    // 普通顺序边：竖直实线
+                    g.lineStyle({ width: 2, color: 0x8a8ab5, alpha: 0.55 });
+                    g.moveTo(x1, sy);
+                    g.lineTo(x2, ty);
+                    g.lineStyle(0);
+                }
+            }
+
+            // 条件 edges：紫色虚线 + "⬢" 标签
+            const condEdges = this.currentRecipe.conditional_edges || [];
+            for (const ce of condEdges) {
+                const fromLayer = nodeToLayer[ce.from];
+                if (!fromLayer) continue;
+                const x1 = fromLayer._finalX || STACK_CENTER_X;
+                const y1 = (fromLayer._finalY || 0) + fromLayer.meta.height / 2;
+
+                // 条件菱形
+                const diamond = new PIXI.Graphics();
+                diamond.beginFill(0xc084fc, 0.8);
+                diamond.lineStyle(1.5, 0xffffff, 0.9);
+                const dy = y1 + 8;
+                diamond.moveTo(x1, dy - 6);
+                diamond.lineTo(x1 + 8, dy);
+                diamond.lineTo(x1, dy + 6);
+                diamond.lineTo(x1 - 8, dy);
+                diamond.closePath();
+                diamond.endFill();
+                this.edgesContainer.addChild(diamond);
+
+                // 每个分支画虚线
+                const mapping = ce.mapping || {};
+                const branches = Object.entries(mapping);
+                branches.forEach(([branchKey, target], idx) => {
+                    const targetLayer = nodeToLayer[target];
+                    if (!targetLayer) return;
+                    const x2 = targetLayer._finalX || STACK_CENTER_X;
+                    const y2 = (targetLayer._finalY || 0) - targetLayer.meta.height / 2;
+                    const spreadX = x1 + (idx - (branches.length - 1) / 2) * 60;
+                    this._drawDashedLine(g, x1, dy + 6, spreadX, (dy + y2) / 2, 0xc084fc);
+                    this._drawDashedLine(g, spreadX, (dy + y2) / 2, x2, y2, 0xc084fc);
+
+                    // 分支标签
+                    const label = new PIXI.Text(branchKey, {
+                        fontFamily: 'Noto Sans SC, sans-serif',
+                        fontSize: 10,
+                        fill: 0xc084fc,
+                    });
+                    label.anchor.set(0.5);
+                    label.position.set(spreadX, (dy + y2) / 2 - 10);
+                    this.edgesContainer.addChild(label);
+                });
+            }
+
+            this.edgesContainer.addChild(g);
+        }
+
+        _drawDashedLine(g, x1, y1, x2, y2, color) {
+            const dx = x2 - x1, dy = y2 - y1;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const dash = 6, gap = 4;
+            const steps = Math.floor(dist / (dash + gap));
+            const ux = dx / dist, uy = dy / dist;
+            g.lineStyle({ width: 1.5, color: color, alpha: 0.75 });
+            for (let i = 0; i < steps; i++) {
+                const sx = x1 + ux * (dash + gap) * i;
+                const sy = y1 + uy * (dash + gap) * i;
+                const ex = sx + ux * dash;
+                const ey = sy + uy * dash;
+                g.moveTo(sx, sy);
+                g.lineTo(ex, ey);
+            }
+            g.lineStyle(0);
+        }
+
+        _drawArrow(g, x1, y1, x2, y2, color) {
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const size = 6;
+            g.beginFill(color, 0.9);
+            g.moveTo(x2, y2);
+            g.lineTo(x2 - size * Math.cos(angle - 0.4), y2 - size * Math.sin(angle - 0.4));
+            g.lineTo(x2 - size * Math.cos(angle + 0.4), y2 - size * Math.sin(angle + 0.4));
+            g.closePath();
+            g.endFill();
         }
 
         // =========================================================
@@ -555,7 +728,8 @@ window.BurgerGame = window.BurgerGame || {};
             const aliasMap = {
                 meat: 'meat_patty',
                 vegetable: 'lettuce',
-                approval: 'lettuce',       // 审批是工具调用前的门，视觉上也落在 lettuce
+                pickle: 'pickle',          // 🥒 HITL 审批关卡：直接映射到 pickle 食材
+                approval: 'pickle',        // 兼容旧名
             };
             const ingId = aliasMap[nodeName] || nodeName;
             const layer = this.layers.find((l) => l.meta.id === ingId);

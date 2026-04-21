@@ -16,6 +16,9 @@
     --color-meat: #a0522d;
     --color-lettuce: #2ecc71;
     --color-tomato: #e74c3c;
+    --color-pickle: #7fb069;
+    --color-onion: #c084fc;
+    --color-chili: #ef4444;
     --radius-sm: 8px;
     --radius-md: 14px;
     --radius-lg: 20px;
@@ -141,6 +144,9 @@ html, body {
 .ingredient-card[data-type="meat_patty"]::before { background: var(--color-meat); }
 .ingredient-card[data-type="lettuce"]::before { background: var(--color-lettuce); }
 .ingredient-card[data-type="tomato"]::before { background: var(--color-tomato); }
+.ingredient-card[data-type="pickle"]::before { background: var(--color-pickle); }
+.ingredient-card[data-type="onion"]::before { background: var(--color-onion); }
+.ingredient-card[data-type="chili"]::before { background: var(--color-chili); }
 
 .ingredient-card:hover {
     background: rgba(255, 255, 255, 0.09);
@@ -154,6 +160,7 @@ html, body {
 .ingredient-card[data-type="meat_patty"]:hover { box-shadow: 0 0 20px rgba(160, 82, 45, 0.2); }
 .ingredient-card[data-type="lettuce"]:hover { box-shadow: 0 0 20px rgba(46, 204, 113, 0.15); }
 .ingredient-card[data-type="tomato"]:hover { box-shadow: 0 0 20px rgba(231, 76, 60, 0.15); }
+.ingredient-card[data-type="pickle"]:hover { box-shadow: 0 0 20px rgba(127, 176, 105, 0.18); }
 
 .ingredient-card:active {
     transform: translateX(2px) scale(0.98);
@@ -1967,4 +1974,28 @@ html, body {
     padding: 2px 6px; border-radius: 4px;
     background: rgba(255,255,255,0.04);
     transition: opacity 0.2s;
+}
+
+/* --- 流式 token 气泡 --- */
+.msg-stream-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    line-height: 1.55;
+}
+.stream-caret {
+    display: inline-block;
+    margin-left: 2px;
+    color: var(--color-cheese, #f5cf5a);
+    animation: stream-blink 1s steps(2, start) infinite;
+    font-weight: 700;
+}
+@keyframes stream-blink {
+    to { visibility: hidden; }
+}
+.thinking-trace-compact {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255,255,255,0.08);
+    font-size: 0.7rem;
 }

@@ -301,6 +301,42 @@ def _get_session(thread_id: Optional[str]) -> Dict[str, Any]:
     return sess
 
 
+def _build_pending_from_snapshot(snapshot, recipe) -> dict:
+    """
+    在 interrupt_before 暂停时，LangGraph 尚未进入 pickle 节点，
+    所以 state.pending_approval 是空的。这里直接从 messages 最后一条
+    AIMessage 现场解析 tool_calls，合成一个可以渲染的 pending 载荷。
+    """
+    from langchain_core.messages import AIMessage
+
+    values = (snapshot.values if snapshot else None) or {}
+    messages = values.get("messages") or []
+    last = messages[-1] if messages else None
+
+    pending_tools: List[dict] = []
+    if isinstance(last, AIMessage):
+        for tc in getattr(last, "tool_calls", []) or []:
+            pending_tools.append({
+                "name": tc.get("name"),
+                "args": tc.get("args"),
+                "id": tc.get("id"),
+            })
+
+    # 从 recipe 的 pickle 节点 params 中读 hint
+    hint = "是否允许执行上述工具调用？"
+    for node in (recipe or {}).get("nodes", []) or []:
+        if node.get("type") == "pickle":
+            hint = (node.get("params") or {}).get("hint", hint)
+            break
+
+    # 合并 values 里已有的 pending_approval（如果恢复后节点已执行过）
+    existing = values.get("pending_approval") or {}
+    if existing.get("tool_calls"):
+        return existing
+
+    return {"hint": hint, "tool_calls": pending_tools}
+
+
 def _extract_reply_from_state(state: Dict[str, Any]) -> str:
     """从 graph 状态中提取可展示的回复文本。"""
     if state.get("output_text"):
@@ -320,9 +356,9 @@ def _serialize_node_event(ev: dict) -> Optional[dict]:
     if etype not in ("on_chain_start", "on_chain_end", "on_tool_start", "on_tool_end"):
         return None
     name = ev.get("name", "")
-    # 仅保留我们的节点名（top_bread/cheese/meat/vegetable/approval/bottom_bread）+ 工具事件
+    # 仅保留我们的节点名（top_bread/cheese/meat/vegetable/pickle/bottom_bread）+ 工具事件
     interesting_nodes = {"top_bread", "cheese", "meat",
-                         "vegetable", "approval", "bottom_bread"}
+                         "vegetable", "pickle", "bottom_bread"}
     if etype.startswith("on_chain_") and name not in interesting_nodes:
         return None
     return {
@@ -356,6 +392,8 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
         return
 
     graph = sess["graph"]
+    recipe_name = sess.get("recipe_name")
+    recipe = get_recipe(recipe_name) if recipe_name else None
     cfg = {"configurable": {"thread_id": thread_id}}
 
     if message:
@@ -368,27 +406,71 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
             etype = ev.get("event", "")
             name = ev.get("name", "")
             interesting_nodes = {"top_bread", "cheese", "meat",
-                                 "vegetable", "approval", "bottom_bread"}
+                                 "vegetable", "pickle", "bottom_bread"}
             if etype == "on_chain_start" and name in interesting_nodes:
                 yield _sse({"type": "node", "name": name, "status": "start"})
+                # 每个事件后让出一次，避免 uvicorn 把多个 SSE 合并成一包发送
+                await asyncio.sleep(0)
             elif etype == "on_chain_end" and name in interesting_nodes:
                 yield _sse({"type": "node", "name": name, "status": "end"})
+                await asyncio.sleep(0)
             elif etype == "on_tool_start":
-                yield _sse({"type": "tool", "name": name, "status": "start"})
+                data = ev.get("data") or {}
+                yield _sse({
+                    "type": "tool",
+                    "name": name,
+                    "status": "start",
+                    "input": data.get("input"),
+                })
+                await asyncio.sleep(0)
             elif etype == "on_tool_end":
-                yield _sse({"type": "tool", "name": name, "status": "end"})
+                data = ev.get("data") or {}
+                out = data.get("output")
+                out_str = None
+                if out is not None:
+                    try:
+                        out_str = str(out)
+                        if len(out_str) > 400:
+                            out_str = out_str[:400] + "..."
+                    except Exception:
+                        out_str = None
+                yield _sse({
+                    "type": "tool",
+                    "name": name,
+                    "status": "end",
+                    "output": out_str,
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chat_model_stream":
+                # 🌊 真正的 LLM token 流：逐 chunk 推给前端
+                data = ev.get("data") or {}
+                chunk = data.get("chunk")
+                text = None
+                if chunk is not None:
+                    content = getattr(chunk, "content", None)
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        # 一些 provider 返回 list[dict]，提取 text 字段
+                        parts = []
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                parts.append(part.get("text", ""))
+                        text = "".join(parts) if parts else None
+                if text:
+                    yield _sse({"type": "token", "text": text})
+                    await asyncio.sleep(0)
 
         # 流结束后读取当前状态，判断是否被 interrupt 暂停
         snapshot = graph.get_state(cfg)
         next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
         if next_nodes:
             # 仍有待执行的节点 → 处于 interrupt 暂停态
-            pending = snapshot.values.get(
-                "pending_approval") if snapshot.values else None
+            pending = _build_pending_from_snapshot(snapshot, recipe)
             yield _sse({
                 "type": "interrupt",
                 "next": next_nodes,
-                "pending": pending or {},
+                "pending": pending,
             })
         else:
             final_state = snapshot.values if snapshot else {}
@@ -413,6 +495,8 @@ async def chat_burger(req: ChatRequest):
     """
     sess = _get_session(req.thread_id)
     graph = sess["graph"]
+    recipe = get_recipe(sess.get("recipe_name")) if sess.get(
+        "recipe_name") else None
     cfg = {"configurable": {"thread_id": req.thread_id}}
 
     try:
@@ -423,13 +507,12 @@ async def chat_burger(req: ChatRequest):
         snapshot = graph.get_state(cfg)
         next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
         if next_nodes:
-            pending = snapshot.values.get(
-                "pending_approval") if snapshot.values else None
+            pending = _build_pending_from_snapshot(snapshot, recipe)
             return {
                 "status": "interrupted",
                 "thread_id": req.thread_id,
                 "next": next_nodes,
-                "pending": pending or {},
+                "pending": pending,
             }
         return {
             "status": "success",
@@ -450,7 +533,12 @@ async def chat_stream(req: ChatRequest):
     return StreamingResponse(
         _stream_chat(req.thread_id, req.message),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream; charset=utf-8",
+        },
     )
 
 
@@ -465,7 +553,7 @@ async def chat_resume(req: ResumeRequest):
 
     if not req.approved:
         # 拒绝：清空最后一条 AIMessage 的 tool_calls，让图从下一步直接走到 bottom_bread
-        # 简化处理：把一条拒绝说明作为 AIMessage 追加，然后从 approval 之后跳过 vegetable
+        # 简化处理：把一条拒绝说明作为 AIMessage 追加，然后从 pickle 之后跳过 vegetable
         from langchain_core.messages import AIMessage
         reject_note = req.note or "用户拒绝了本次工具调用。"
         graph.update_state(
@@ -474,7 +562,7 @@ async def chat_resume(req: ResumeRequest):
                 "messages": [AIMessage(content=reject_note)],
                 "pending_approval": None,
             },
-            as_node="approval",
+            as_node="pickle",
         )
         # 直接跳到 bottom_bread：走一次 invoke 让流程收尾
         try:
@@ -491,7 +579,12 @@ async def chat_resume(req: ResumeRequest):
     return StreamingResponse(
         _stream_chat(req.thread_id, None),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream; charset=utf-8",
+        },
     )
 
 
@@ -685,7 +778,7 @@ async def api_resume(req: ResumeRequest):
             graph.update_state(
                 cfg,
                 {{"messages": [AIMessage(content=note)], "pending_approval": None}},
-                as_node="approval",
+                as_node="pickle",
             )
             return {{"status": "rejected", "reply": note}}
     except Exception as e:

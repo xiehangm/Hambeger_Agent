@@ -90,10 +90,15 @@ def compile_recipe(
 
     # 3) 编译参数
     compile_kwargs: Dict[str, Any] = {}
-    if checkpointer is not None:
+    caps = recipe.get("capabilities", {}) or {}
+
+    # 🍅 番茄 (memory) / 🥒 酸黄瓜 (hitl) 任一启用 → 需要 checkpointer
+    # 其他无状态配方（basic_chat / guided_chat / tool_agent）不启用 checkpointer，
+    # 多轮记忆就成为「番茄」这片食材的真实、可观察的能力。
+    needs_checkpointer = bool(caps.get("memory") or caps.get("hitl"))
+    if needs_checkpointer and checkpointer is not None:
         compile_kwargs["checkpointer"] = checkpointer
 
-    caps = recipe.get("capabilities", {}) or {}
     eff_interrupt_before = (
         interrupt_before
         if interrupt_before is not None

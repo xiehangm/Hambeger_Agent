@@ -18,6 +18,8 @@ from hamburger.ingredients.bread import TopBread, BottomBread
 from hamburger.ingredients.cheese import Cheese
 from hamburger.ingredients.meat import MeatPatty
 from hamburger.ingredients.vegetable import Vegetable
+from hamburger.ingredients.onion import Onion
+from hamburger.ingredients.chili import Chili
 
 
 # ============================================================
@@ -69,31 +71,17 @@ def _factory_vegetable(spec, ctx):
 
 def _factory_interrupt_gate(spec, ctx):
     """
-    占位节点：本身不做任何处理。
-    真正的暂停由 graph.compile(interrupt_before=[node_id]) 触发。
-    节点运行时只是把 spec 中的 payload 写到 state.pending_approval，
-    供前端判定是否处于审批状态。
-    """
-    params = spec.get("params", {}) or {}
-    hint = params.get("hint", "请审核下一步操作")
+    🥒 酸黄瓜 / HITL 审批关卡。
 
+    LangGraph 的 `interrupt_before=[<node_id>]` 会在进入该节点【之前】切断执行，
+    所以节点体里写任何 state 都不会在暂停时生效 —— 实际的 pending 载荷由
+    server 端在检测到暂停时从 messages 中现场合成。
+    这里保留一个 pass-through 用于恢复执行：当用户点击"批准"后，LangGraph 会
+    先运行这个节点（依然是 no-op），再继续走到 vegetable。
+    """
     def _gate(state: HamburgerState) -> dict:
-        messages = state.get("messages", []) or []
-        last = messages[-1] if messages else None
-        pending_tools: List[dict] = []
-        if isinstance(last, AIMessage):
-            for tc in getattr(last, "tool_calls", []) or []:
-                pending_tools.append({
-                    "name": tc.get("name"),
-                    "args": tc.get("args"),
-                    "id": tc.get("id"),
-                })
-        return {
-            "pending_approval": {
-                "hint": hint,
-                "tool_calls": pending_tools,
-            }
-        }
+        # 已经进入本节点说明审批已通过，清空 pending_approval 即可。
+        return {"pending_approval": None}
 
     return _gate
 
@@ -104,7 +92,21 @@ NODE_FACTORIES: Dict[str, NodeFactory] = {
     "cheese": _factory_cheese,
     "meat_patty": _factory_meat_patty,
     "vegetable": _factory_vegetable,
+    # 🥒 酸黄瓜 = Human-in-the-Loop 审批关卡。
+    #   工厂逻辑等同 interrupt_gate，但在画布/配方中以「pickle」出现，
+    #   让 HITL 这一 LangGraph 特性有可见的食材载体。
+    "pickle": _factory_interrupt_gate,
+    # 旧名保留，避免破坏现有外部调用
     "interrupt_gate": _factory_interrupt_gate,
+    # 🧅 洋葱 = 条件路由 (add_conditional_edges)
+    "onion": lambda spec, ctx: Onion(
+        default=(spec.get("params") or {}).get("default", "chat"),
+    ),
+    # 🌶️ 辣椒 = state reducer 演示节点
+    "chili": lambda spec, ctx: Chili(
+        heat=(spec.get("params") or {}).get("heat", 1),
+        flavor=(spec.get("params") or {}).get("flavor", "spicy"),
+    ),
 }
 
 
@@ -132,6 +134,7 @@ def tools_condition(state: HamburgerState) -> Literal["tools", "end"]:
 
 CONDITIONS: Dict[str, Callable[[HamburgerState], str]] = {
     "tools": tools_condition,
+    "intent": lambda state: state.get("intent") or "chat",
 }
 
 

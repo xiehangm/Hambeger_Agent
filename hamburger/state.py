@@ -1,6 +1,14 @@
-from typing import TypedDict, Annotated, Sequence, Any, Optional, List
+from typing import TypedDict, Annotated, Sequence, Any, Optional, List, Set
+import operator
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
+
+
+def _merge_sets(a: Optional[Set[str]], b: Optional[Set[str]]) -> Set[str]:
+    """🌶️ Chili 用的集合并 reducer —— 给 Annotated[set, ...] 使用"""
+    out: Set[str] = set(a or [])
+    out |= set(b or [])
+    return out
 
 
 class HamburgerState(TypedDict, total=False):
@@ -29,3 +37,13 @@ class HamburgerState(TypedDict, total=False):
 
     # 工具调用轨迹（流式前端可读）
     tool_trace: List[dict]
+
+    # 🧅 Onion 路由器写入：本次请求被分类到的意图分支
+    intent: Optional[str]
+
+    # 🌶️ Chili Reducer 演示：多节点可并发追加的分数（用 operator.add 合并 list）
+    scores: Annotated[List[int], operator.add]
+
+    # 🌶️ Chili Reducer 演示：集合并（展示自定义 reducer）
+    tags: Annotated[Set[str], _merge_sets]
+

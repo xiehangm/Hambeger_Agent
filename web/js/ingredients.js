@@ -67,12 +67,51 @@ window.BurgerGame = window.BurgerGame || {};
             name: '番茄',
             nameEn: 'Tomato',
             emoji: '🍅',
-            desc: '额外装饰层',
+            desc: '持久化记忆 (Checkpointer)',
             color: 0xe74c3c,
             width: 250,
             height: 18,
             configurable: false,
             category: 'filling',
+        },
+        pickle: {
+            id: 'pickle',
+            name: '酸黄瓜',
+            nameEn: 'Pickle',
+            emoji: '🥒',
+            desc: '人类审批 (HITL · interrupt_before)',
+            color: 0x7fb069,
+            width: 255,
+            height: 16,
+            configurable: true,
+            category: 'filling',
+            defaultConfig: { hint: '是否允许执行上述工具调用？' },
+        },
+        onion: {
+            id: 'onion',
+            name: '洋葱',
+            nameEn: 'Onion',
+            emoji: '🧅',
+            desc: '条件路由 (Conditional Edge)',
+            color: 0xc084fc,
+            width: 260,
+            height: 22,
+            configurable: true,
+            category: 'filling',
+            defaultConfig: { default: 'chat' },
+        },
+        chili: {
+            id: 'chili',
+            name: '辣椒',
+            nameEn: 'Chili',
+            emoji: '🌶️',
+            desc: 'State Reducer 演示 (Annotated)',
+            color: 0xef4444,
+            width: 240,
+            height: 18,
+            configurable: true,
+            category: 'filling',
+            defaultConfig: { heat: 2, flavor: 'spicy' },
         },
         bottom_bread: {
             id: 'bottom_bread',
@@ -363,6 +402,119 @@ window.BurgerGame = window.BurgerGame || {};
     }
 
     // =========================================================
+    //  酸黄瓜 — 切片 + 凹凸纹理（HITL 审批关卡）
+    // =========================================================
+    function drawPickle(container, meta) {
+        const w = meta.width;
+        const h = meta.height;
+        const g = new PIXI.Graphics();
+
+        // 主片 — 椭圆切面
+        g.beginFill(meta.color, 0.92);
+        g.drawRoundedRect(0, 0, w, h, Math.min(h * 0.6, 12));
+        g.endFill();
+
+        // 暗边：浸渍感
+        g.lineStyle(1.5, darken(meta.color, 0.65), 0.45);
+        g.drawRoundedRect(1, 1, w - 2, h - 2, Math.min(h * 0.5, 10));
+        g.lineStyle(0);
+
+        // 凹凸纹理：小籽粒（象征"细节审视"）
+        const bumps = new PIXI.Graphics();
+        const bumpColor = lighten(meta.color, 0.35);
+        const darkBump = darken(meta.color, 0.6);
+        const count = 9;
+        for (let i = 0; i < count; i++) {
+            const bx = ((i + 0.5) / count) * w;
+            const by = h * 0.5 + (i % 2 === 0 ? -1.5 : 1.5);
+            bumps.beginFill(bumpColor, 0.55);
+            bumps.drawCircle(bx, by, 1.8);
+            bumps.endFill();
+            bumps.beginFill(darkBump, 0.35);
+            bumps.drawCircle(bx + 0.4, by + 0.4, 1);
+            bumps.endFill();
+        }
+
+        // 高光条
+        g.beginFill(lighten(meta.color, 0.4), 0.25);
+        g.drawRoundedRect(w * 0.04, 1, w * 0.25, h * 0.3, 2);
+        g.endFill();
+
+        container.addChild(g);
+        container.addChild(bumps);
+    }
+
+    // =========================================================
+    //  洋葱 — 同心圆环（路由分支隐喻）
+    // =========================================================
+    function drawOnion(container, meta) {
+        const w = meta.width, h = meta.height;
+        const g = new PIXI.Graphics();
+
+        // 主体
+        g.beginFill(meta.color);
+        g.drawRoundedRect(0, 0, w, h, 10);
+        g.endFill();
+
+        // 三道同心弧表示"路由分层"
+        const cx = w / 2;
+        const cy = h / 2;
+        for (let i = 0; i < 3; i++) {
+            g.lineStyle(1.5, lighten(meta.color, 0.35 + i * 0.15), 0.9);
+            g.drawEllipse(cx, cy, w * 0.4 - i * 18, h * 0.36 - i * 4);
+        }
+        g.lineStyle(0);
+
+        // 三条分支线（从中心向右）
+        g.lineStyle(1.2, 0xffffff, 0.6);
+        g.moveTo(cx, cy);
+        g.lineTo(cx + 40, cy - 6);
+        g.moveTo(cx, cy);
+        g.lineTo(cx + 40, cy);
+        g.moveTo(cx, cy);
+        g.lineTo(cx + 40, cy + 6);
+        g.lineStyle(0);
+
+        container.addChild(g);
+    }
+
+    // =========================================================
+    //  辣椒 — 横卧红椒 + 火花点
+    // =========================================================
+    function drawChili(container, meta) {
+        const w = meta.width, h = meta.height;
+        const g = new PIXI.Graphics();
+
+        // 椒身（胶囊形）
+        g.beginFill(meta.color);
+        g.drawRoundedRect(0, 0, w, h, h / 2);
+        g.endFill();
+
+        // 椒把（左端小绿叶）
+        g.beginFill(0x16a34a);
+        g.drawRoundedRect(-6, h * 0.15, 14, h * 0.7, 3);
+        g.endFill();
+
+        // 高光
+        g.beginFill(lighten(meta.color, 0.4), 0.4);
+        g.drawRoundedRect(w * 0.1, 2, w * 0.6, h * 0.35, h * 0.2);
+        g.endFill();
+
+        // 火花点
+        const sparks = new PIXI.Graphics();
+        sparks.beginFill(0xffd700, 0.9);
+        for (let i = 0; i < 5; i++) {
+            const x = w * (0.2 + 0.15 * i) + (Math.random() - 0.5) * 4;
+            const y = h / 2 + (Math.random() - 0.5) * h * 0.4;
+            sparks.drawCircle(x, y, 1.2);
+        }
+        sparks.endFill();
+
+        container.addChild(g);
+        container.addChild(sparks);
+    }
+
+    // =========================================================
     //  绘制分发
     // =========================================================
     const DRAW_FUNCTIONS = {
@@ -372,6 +524,9 @@ window.BurgerGame = window.BurgerGame || {};
         meat_patty: drawMeatPatty,
         lettuce: drawLettuce,
         tomato: drawTomato,
+        pickle: drawPickle,
+        onion: drawOnion,
+        chili: drawChili,
     };
 
     /**
