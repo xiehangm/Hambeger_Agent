@@ -394,7 +394,12 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
     graph = sess["graph"]
     recipe_name = sess.get("recipe_name")
     recipe = get_recipe(recipe_name) if recipe_name else None
+    capabilities = (recipe or {}).get("capabilities", {}) or {}
+    uses_checkpointer = bool(
+        capabilities.get("memory") or capabilities.get("hitl")
+    )
     cfg = {"configurable": {"thread_id": thread_id}}
+    final_state_from_events: Dict[str, Any] = {}
 
     if message:
         inp = {"input_text": message, "messages": []}
@@ -412,8 +417,18 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
                 # 每个事件后让出一次，避免 uvicorn 把多个 SSE 合并成一包发送
                 await asyncio.sleep(0)
             elif etype == "on_chain_end" and name in interesting_nodes:
+                if name == "bottom_bread":
+                    data = ev.get("data") or {}
+                    output = data.get("output")
+                    if isinstance(output, dict):
+                        final_state_from_events = output
                 yield _sse({"type": "node", "name": name, "status": "end"})
                 await asyncio.sleep(0)
+            elif etype == "on_chain_end" and name == "LangGraph":
+                data = ev.get("data") or {}
+                output = data.get("output")
+                if isinstance(output, dict):
+                    final_state_from_events = output
             elif etype == "on_tool_start":
                 data = ev.get("data") or {}
                 yield _sse({
@@ -462,18 +477,27 @@ async def _stream_chat(thread_id: str, message: Optional[str]):
                     await asyncio.sleep(0)
 
         # 流结束后读取当前状态，判断是否被 interrupt 暂停
-        snapshot = graph.get_state(cfg)
-        next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
-        if next_nodes:
-            # 仍有待执行的节点 → 处于 interrupt 暂停态
-            pending = _build_pending_from_snapshot(snapshot, recipe)
-            yield _sse({
-                "type": "interrupt",
-                "next": next_nodes,
-                "pending": pending,
-            })
+        if uses_checkpointer:
+            snapshot = graph.get_state(cfg)
+            next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
+            if next_nodes:
+                # 仍有待执行的节点 → 处于 interrupt 暂停态
+                pending = _build_pending_from_snapshot(snapshot, recipe)
+                yield _sse({
+                    "type": "interrupt",
+                    "next": next_nodes,
+                    "pending": pending,
+                })
+            else:
+                final_state = snapshot.values if snapshot else final_state_from_events
+                reply = _extract_reply_from_state(final_state)
+                yield _sse({
+                    "type": "final",
+                    "reply": reply,
+                    "messages": len(final_state.get("messages") or []),
+                })
         else:
-            final_state = snapshot.values if snapshot else {}
+            final_state = final_state_from_events
             reply = _extract_reply_from_state(final_state)
             yield _sse({
                 "type": "final",
