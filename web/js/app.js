@@ -25,6 +25,8 @@ window.BurgerGame = window.BurgerGame || {};
         bindClearButton();
         bindCanvasCallbacks();
         bindModeToggle();
+        bindRightPanelControls();
+        bindSidebarDrawer();
 
         updateLayerCount(0);
 
@@ -350,15 +352,30 @@ window.BurgerGame = window.BurgerGame || {};
         panel.style.display = 'none';
     }
 
+    function bindRightPanelControls() {
+        const closeBtn = document.getElementById('right-panel-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', hideRightPanel);
+        }
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                hideRightPanel();
+            }
+        });
+    }
+
     // =========================================================
     //  右侧面板显示/隐藏
     // =========================================================
     function showRightPanel() {
-        document.getElementById('right-panel').classList.add('visible');
+        const panel = document.getElementById('right-panel');
+        if (panel) panel.classList.add('visible');
     }
 
     function hideRightPanel() {
-        document.getElementById('right-panel').classList.remove('visible');
+        const panel = document.getElementById('right-panel');
+        if (panel) panel.classList.remove('visible');
     }
 
     // =========================================================
@@ -380,11 +397,58 @@ window.BurgerGame = window.BurgerGame || {};
     function updateLayerCount(count) {
         const el = document.getElementById('layer-count');
         if (el) {
-            el.innerHTML = `当前层数: <strong>${count}</strong>`;
+            el.innerHTML = `<span class="lc-label">层数</span><strong>${count}</strong>`;
         }
         // 控制上菜按钮状态
         const btn = document.getElementById('btn-serve');
-        btn.disabled = count === 0;
+        if (btn) btn.disabled = count === 0;
+    }
+
+    // =========================================================
+    //  侧边栏抽屉（移动端）
+    // =========================================================
+    function bindSidebarDrawer() {
+        const app = document.getElementById('build-view');
+        const toggleBtn = document.getElementById('btn-toggle-sidebar');
+        const closeBtn = document.getElementById('sidebar-close');
+        const backdrop = document.getElementById('sidebar-backdrop');
+        if (!app) return;
+
+        const open = () => app.classList.add('sidebar-open');
+        const close = () => app.classList.remove('sidebar-open');
+        const toggle = () => app.classList.toggle('sidebar-open');
+
+        if (toggleBtn) toggleBtn.addEventListener('click', toggle);
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        if (backdrop) backdrop.addEventListener('click', close);
+
+        // 点击食材卡片后自动收起抽屉（仅在小屏上会显示抽屉形态）
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || !target.closest) return;
+            if (target.closest('.ingredient-card, .recipe-picker-card')) {
+                if (window.matchMedia('(max-width: 960px)').matches) close();
+            }
+        });
+
+        // Esc 关闭抽屉
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') close();
+        });
+
+        // 同步顶栏高度（顶栏在小屏上可能换行变高）
+        const topbar = document.querySelector('.app-topbar');
+        if (topbar) {
+            const syncHeight = () => {
+                const h = topbar.getBoundingClientRect().height;
+                document.documentElement.style.setProperty('--topbar-h', h + 'px');
+            };
+            syncHeight();
+            window.addEventListener('resize', syncHeight);
+            if (window.ResizeObserver) {
+                new ResizeObserver(syncHeight).observe(topbar);
+            }
+        }
     }
 
     // =========================================================
