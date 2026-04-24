@@ -47,6 +47,9 @@
                 <div class="layer-count" id="layer-count" title="当前层数">
                     <span class="lc-label">层数</span><strong>0</strong>
                 </div>
+                <button class="btn-ghost" id="btn-goto-combo" title="切换到汉堡套餐工坊" style="margin-right:8px;">
+                    <span class="btn-emoji">🍱</span><span class="btn-label">套餐工坊</span>
+                </button>
                 <button class="btn-ghost btn-clear" id="btn-clear" title="清空画布">
                     <span class="btn-emoji">🗑️</span><span class="btn-label">清空</span>
                 </button>
@@ -236,6 +239,7 @@
             </div>
             <div class="chat-header-right">
                 <span class="chat-status status-connecting" id="chat-status">🔄 连接中...</span>
+                <button class="chat-btn-download" id="chat-save-burger-btn" title="保存为菜品，可在套餐工坊引用">💾 保存为菜品</button>
                 <button class="chat-btn-download" id="chat-download-btn">📥 下载后端</button>
             </div>
         </header>
@@ -266,6 +270,84 @@
         </div>
     </div>
 
+    <!-- ====================================================================
+         VIEW 3: 汉堡套餐工坊 (Combo View) — LangGraph 工作流
+    ==================================================================== -->
+    <div class="combo-view" id="combo-view">
+        <header class="chat-header">
+            <div class="chat-header-left">
+                <button class="chat-btn-icon" id="combo-back-btn" title="返回搭建">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="chat-title">
+                    <h1>🍱 汉堡套餐工坊</h1>
+                    <div class="chat-config-summary" id="combo-subtitle">挑选一种工作流模式，把已搭建的汉堡组合成协作套餐</div>
+                </div>
+            </div>
+            <div class="chat-header-right">
+                <button class="chat-btn-download" id="combo-save-btn" title="保存当前套餐">💾 保存套餐</button>
+                <button class="chat-btn-download" id="combo-run-btn" title="构建并开始聊天">🚀 上菜运行</button>
+            </div>
+        </header>
+
+        <div class="combo-body">
+            <!-- 左栏：模式 + 菜品库 -->
+            <aside class="combo-left">
+                <section class="combo-section">
+                    <h3>🎛 工作流模式</h3>
+                    <div class="combo-pattern-list" id="combo-pattern-list"></div>
+                </section>
+                <section class="combo-section combo-library">
+                    <h3>🍔 菜品库</h3>
+                    <p class="combo-hint">在搭建视图里把汉堡「保存为菜品」，这里就会显示，拖到中间槽位即可</p>
+                    <div class="combo-burger-list" id="combo-burger-list">
+                        <div class="combo-empty">尚未保存任何汉堡</div>
+                    </div>
+                </section>
+                <section class="combo-section">
+                    <h3>📖 已保存套餐</h3>
+                    <div class="combo-saved-list" id="combo-saved-list">
+                        <div class="combo-empty">尚未保存任何套餐</div>
+                    </div>
+                </section>
+            </aside>
+
+            <!-- 中间：画布 -->
+            <main class="combo-canvas-wrap">
+                <div class="combo-canvas-head">
+                    <input type="text" id="combo-name-input" class="combo-name-input" placeholder="给套餐起个名字…" />
+                    <span class="combo-pattern-badge" id="combo-pattern-badge">—</span>
+                </div>
+                <div class="combo-canvas" id="combo-canvas">
+                    <div class="combo-placeholder">← 从左侧选择一种工作流模式</div>
+                </div>
+                <div class="combo-chat-drawer" id="combo-chat-drawer" hidden>
+                    <div class="combo-chat-head">
+                        <strong>📡 套餐运行</strong>
+                        <button class="chat-btn-icon" id="combo-chat-close" title="关闭">✕</button>
+                    </div>
+                    <div class="combo-chat-trace" id="combo-chat-trace"></div>
+                    <div class="combo-chat-msgs" id="combo-chat-msgs"></div>
+                    <div class="combo-chat-input-row">
+                        <textarea id="combo-chat-input" rows="1" placeholder="输入消息运行套餐…"></textarea>
+                        <button class="chat-send-btn" id="combo-chat-send" title="发送">▶</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 右栏：当前选中节点/模式的属性 -->
+            <aside class="combo-right">
+                <h3>🔧 套餐配置</h3>
+                <div class="combo-props" id="combo-props">
+                    <div class="combo-empty">选择一种模式后，这里会显示可配置项</div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
     <!-- Toast 通知 -->
     <div id="toast" class="toast"></div>
 
@@ -280,6 +362,7 @@
     <script src="js/burger.js"></script>
     <script src="js/codegen.js"></script>
     <script src="js/chat.js"></script>
+    <script src="js/combo.js"></script>
     <script src="js/app.js"></script>
 
 </body>

@@ -25,6 +25,8 @@ from hamburger import (
     RECIPES,
 )
 from hamburger.recipes import match_recipe, validate_structure
+from hamburger import registry as burger_registry
+from hamburger.combo import compile_combo, combo_registry, PATTERN_KINDS
 from hamburger.mcp_loader import (
     get_builtin_servers,
     get_installed_servers,
@@ -1066,6 +1068,353 @@ async def download_project(config: BuildConfig):
         headers={
             "Content-Disposition": 'attachment; filename="burger_agent_project.zip"'
         }
+    )
+
+
+# ============================================================
+#  🍱 汉堡套餐（LangGraph 工作流）
+# ============================================================
+_combo_sessions: Dict[str, Dict[str, Any]] = {}
+_combo_checkpointer = MemorySaver()
+
+
+class BurgerSaveRequest(BaseModel):
+    name: str
+    description: str = ""
+    config: Dict[str, Any]            # 完整的 BuildConfig dict
+    burger_id: Optional[str] = None   # 传入则覆盖保存
+
+
+class ComboSaveRequest(BaseModel):
+    name: str
+    description: str = ""
+    pattern: str
+    config: Dict[str, Any]
+    combo_id: Optional[str] = None
+
+
+class ComboBuildRequest(BaseModel):
+    combo_id: Optional[str] = None    # 使用已保存套餐
+    pattern: Optional[str] = None     # 或直接临时运行
+    config: Optional[Dict[str, Any]] = None
+    meat_model: str = "qwen-plus"
+    cheese_prompt: str = "你是一个有用的智能助手"
+    thread_id: Optional[str] = None
+
+
+class ComboChatRequest(BaseModel):
+    thread_id: str
+    message: str
+
+
+# ---------- 汉堡持久化 API ----------
+@app.get("/api/burgers")
+async def api_list_burgers():
+    return {"burgers": burger_registry.list_burgers()}
+
+
+@app.get("/api/burgers/{burger_id}")
+async def api_get_burger(burger_id: str):
+    rec = burger_registry.get_burger(burger_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"汉堡不存在: {burger_id}")
+    return rec
+
+
+@app.post("/api/burgers")
+async def api_save_burger(req: BurgerSaveRequest):
+    try:
+        rec = burger_registry.save_burger(
+            req.name,
+            req.config,
+            burger_id=req.burger_id,
+            description=req.description,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return rec
+
+
+@app.delete("/api/burgers/{burger_id}")
+async def api_delete_burger(burger_id: str):
+    ok = burger_registry.delete_burger(burger_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="汉堡不存在")
+    return {"status": "ok"}
+
+
+# ---------- 套餐持久化 API ----------
+@app.get("/api/combos")
+async def api_list_combos():
+    return {"combos": combo_registry.list_combos()}
+
+
+@app.get("/api/combos/{combo_id}")
+async def api_get_combo(combo_id: str):
+    rec = combo_registry.get_combo(combo_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"套餐不存在: {combo_id}")
+    return rec
+
+
+@app.post("/api/combos")
+async def api_save_combo(req: ComboSaveRequest):
+    try:
+        rec = combo_registry.save_combo(
+            req.name, req.pattern, req.config,
+            combo_id=req.combo_id, description=req.description,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return rec
+
+
+@app.delete("/api/combos/{combo_id}")
+async def api_delete_combo(combo_id: str):
+    ok = combo_registry.delete_combo(combo_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="套餐不存在")
+    return {"status": "ok"}
+
+
+# ---------- 套餐运行：构建 + 流式聊天 ----------
+def _make_llm(model: str):
+    api_key = os.getenv("DASHSCOPE_API_KEY", "your-key")
+    base_url = os.getenv("QWEN_BASE_URL",
+                         "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    return ChatOpenAI(api_key=api_key, base_url=base_url,
+                      model=model or "qwen-plus", temperature=0.7)
+
+
+def _combo_build_ctx_factory(cheese_prompt: str, model: str):
+    """返回一个 (burger_config) -> build_ctx 的闭包，供 compile_combo 使用。"""
+    def _factory(burger_config: Dict[str, Any]) -> Dict[str, Any]:
+        # 子图各自用自己的 cheese_prompt / meat_model / vegetables，
+        # 只有缺省时才退回到套餐默认
+        bc = BuildConfig(**burger_config)
+        sub_llm = _make_llm(bc.meat_model or model)
+        sub_tools = _resolve_tools(bc)
+        return {
+            "llm": sub_llm,
+            "tools": sub_tools,
+            "cheese_prompt": bc.cheese_prompt or cheese_prompt,
+        }
+    return _factory
+
+
+def _combo_burger_loader(burger_id: str) -> Dict[str, Any]:
+    rec = burger_registry.get_burger(burger_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail=f"套餐引用的汉堡不存在: {burger_id}")
+    return rec.get("config") or {}
+
+
+@app.post("/api/combo/build")
+async def api_combo_build(req: ComboBuildRequest):
+    # 解析 combo_recipe
+    if req.combo_id:
+        rec = combo_registry.get_combo(req.combo_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="套餐不存在")
+        pattern = rec["pattern"]
+        combo_cfg = rec.get("config") or {}
+        combo_name = rec.get("name", "套餐")
+    else:
+        if not req.pattern or req.pattern not in PATTERN_KINDS:
+            raise HTTPException(
+                status_code=400, detail=f"pattern 必须是 {PATTERN_KINDS}")
+        pattern = req.pattern
+        combo_cfg = req.config or {}
+        combo_name = "临时套餐"
+
+    combo_recipe = {"pattern": pattern, "config": combo_cfg}
+
+    try:
+        graph = compile_combo(
+            combo_recipe,
+            loader=_combo_burger_loader,
+            ctx_factory=_combo_build_ctx_factory(
+                req.cheese_prompt, req.meat_model),
+            llm_factory=lambda: _make_llm(req.meat_model),
+            checkpointer=_combo_checkpointer,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"套餐编译失败: {e}")
+
+    thread_id = req.thread_id or f"cmb_{uuid.uuid4().hex[:12]}"
+    _combo_sessions[thread_id] = {
+        "graph": graph,
+        "pattern": pattern,
+        "config": combo_cfg,
+        "combo_id": req.combo_id,
+        "name": combo_name,
+    }
+    print(
+        f"[Combo] built thread={thread_id} pattern={pattern} id={req.combo_id}")
+    return {
+        "status": "ok",
+        "thread_id": thread_id,
+        "pattern": pattern,
+        "name": combo_name,
+    }
+
+
+def _combo_extract_node_name(ev: dict) -> Optional[str]:
+    """从 astream_events 事件里尝试抽取套餐外层节点名。"""
+    name = ev.get("name") or ""
+    metadata = (ev.get("metadata") or {})
+    # 优先用 metadata.langgraph_node，它标识当前事件属于哪个外层节点
+    nm = metadata.get("langgraph_node")
+    return nm or name
+
+
+async def _stream_combo(thread_id: str, message: str):
+    sess = _combo_sessions.get(thread_id)
+    if sess is None:
+        yield _sse({"type": "error", "detail": f"套餐会话不存在: {thread_id}"})
+        yield _sse({"type": "done"})
+        return
+
+    graph = sess["graph"]
+    pattern = sess["pattern"]
+    cfg = {"configurable": {"thread_id": thread_id}}
+
+    yield _sse({"type": "combo_start", "pattern": pattern, "name": sess.get("name")})
+
+    burger_node_ids = _collect_burger_node_ids(sess)
+    started_nodes: set = set()
+    finished_nodes: set = set()
+    final_state: Dict[str, Any] = {}
+
+    try:
+        async for ev in graph.astream_events(
+            {"user_input": message}, config=cfg, version="v2"
+        ):
+            etype = ev.get("event", "")
+            node_name = _combo_extract_node_name(ev)
+
+            if etype == "on_chain_start" and node_name in burger_node_ids and node_name not in started_nodes:
+                started_nodes.add(node_name)
+                yield _sse({
+                    "type": "combo_burger_start",
+                    "node_id": node_name,
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chain_end" and node_name in burger_node_ids and node_name not in finished_nodes:
+                finished_nodes.add(node_name)
+                # 尝试从 data.output 中取 burger_outputs
+                data = ev.get("data") or {}
+                out = data.get("output") or {}
+                reply = ""
+                if isinstance(out, dict):
+                    bo = out.get("burger_outputs") or {}
+                    reply = bo.get(node_name, "") if isinstance(
+                        bo, dict) else ""
+                yield _sse({
+                    "type": "combo_burger_end",
+                    "node_id": node_name,
+                    "output": reply[:2000] if isinstance(reply, str) else "",
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chain_end" and node_name == "_router":
+                data = ev.get("data") or {}
+                out = data.get("output") or {}
+                yield _sse({
+                    "type": "router_decision",
+                    "route": out.get("route_decision"),
+                    "why": out.get("route_justification"),
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chain_end" and node_name == "_orchestrator":
+                data = ev.get("data") or {}
+                out = data.get("output") or {}
+                yield _sse({
+                    "type": "work_plan",
+                    "sections": out.get("work_plan") or [],
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chain_end" and node_name == "_evaluator":
+                data = ev.get("data") or {}
+                out = data.get("output") or {}
+                ev_obj = out.get("evaluation") or {}
+                yield _sse({
+                    "type": "evaluator_feedback",
+                    "grade": ev_obj.get("grade"),
+                    "feedback": ev_obj.get("feedback"),
+                    "iteration": out.get("iteration"),
+                    "accepted": out.get("accepted"),
+                })
+                await asyncio.sleep(0)
+            elif etype == "on_chain_end" and node_name == "LangGraph":
+                data = ev.get("data") or {}
+                out = data.get("output") or {}
+                if isinstance(out, dict):
+                    final_state = out
+
+        # 结束：读取最终 state
+        try:
+            snap = graph.get_state(cfg)
+            if snap and snap.values:
+                final_state = snap.values
+        except Exception:
+            pass
+
+        final_output = final_state.get("final_output") or ""
+        yield _sse({
+            "type": "combo_final",
+            "output": final_output,
+            "trace_len": len(final_state.get("combo_trace") or []),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        yield _sse({"type": "error", "detail": str(e)})
+
+    yield _sse({"type": "done"})
+
+
+def _collect_burger_node_ids(sess: Dict[str, Any]) -> set:
+    """根据 pattern + config 枚举所有汉堡节点的外层 node_id。"""
+    pattern = sess.get("pattern")
+    cfg = sess.get("config") or {}
+    ids: set = set()
+    if pattern == "chain":
+        for s in cfg.get("steps") or []:
+            ids.add(s["node_id"])
+    elif pattern == "routing":
+        for r in cfg.get("routes") or []:
+            ids.add(r["node_id"])
+    elif pattern == "parallel":
+        for b in cfg.get("branches") or []:
+            ids.add(b["node_id"])
+    elif pattern == "orchestrator":
+        w = (cfg.get("worker") or {})
+        if w.get("node_id"):
+            ids.add(w["node_id"])
+    elif pattern == "evaluator":
+        g = (cfg.get("generator") or {})
+        if g.get("node_id"):
+            ids.add(g["node_id"])
+    return ids
+
+
+@app.post("/api/combo/chat/stream")
+async def api_combo_chat_stream(req: ComboChatRequest):
+    if req.thread_id not in _combo_sessions:
+        raise HTTPException(status_code=404, detail="套餐会话不存在")
+    return StreamingResponse(
+        _stream_combo(req.thread_id, req.message),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream; charset=utf-8",
+        },
     )
 
 

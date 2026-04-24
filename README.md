@@ -12,10 +12,43 @@
 - 人在什么位置审批工具调用
 - 意图识别、工具规划、人工审批三者如何串起来
 
+
 ---
+---
+## 🍱 汉堡套餐（Hamburger Combo）— LangGraph 工作流可视化搭建
 
+在「单个汉堡 = Agent」的基础上，汉堡套餐把多个已保存的汉堡按 LangGraph 官方 5 种工作流模式组合起来：
+
+| 模式                | 套餐名     | 典型用途                           |
+| ------------------- | ---------- | ---------------------------------- |
+| Prompt Chaining     | 🧵 串联套餐 | 多步流水线（分析 → 写作 → 润色）   |
+| Routing             | 🔀 分流套餐 | 按用户意图分发到不同专家汉堡       |
+| Parallelization     | 🎨 拼盘套餐 | 多视角并行 + 聚合                  |
+| Orchestrator-Worker | 👨‍🍳 主厨套餐 | 主厨 LLM 动态拆分任务、派生 worker |
+| Evaluator-Optimizer | ⚖️ 评委套餐 | 生成 ↔ 评委循环，带反馈重试        |
+
+### 使用流程
+
+1. 在常规搭建视图里搭好一个汉堡 → 上菜 → 在聊天页点「💾 保存为菜品」
+2. 顶部导航点「🍱 套餐工坊」切入套餐视图
+3. 左栏选一种模式 → 画布生成默认拓扑 → 从「菜品库」里选一个汉堡，点击画布槽位填入
+4. 右栏编辑模式专属配置（路由 prompt / 评委标准 / 最大迭代次数…）
+5. 点「🚀 上菜运行」构建并开始对话 → 底部抽屉会流式显示每个汉堡的运行轨迹
+6. 点「💾 保存套餐」可复用
+
+### 脚本示例
+
+见 [example_combo.py](example_combo.py)，演示了如何用 Python API 保存两个汉堡、组合成「串联套餐」、同步调用。
+
+### 后端要点
+
+- 外层 `StateGraph(ComboState)` 编排每个汉堡子图（`compile_recipe()` 产物）
+- 子图独立 `thread_id`（隔离内部记忆），外层默认开启 `MemorySaver`（支持评委循环与跨轮对话）
+- SSE 事件新增：`combo_burger_start/end`、`router_decision`、`work_plan`、`evaluator_feedback`、`combo_final`
+- REST：`/api/burgers`（菜品 CRUD）、`/api/combos`（套餐 CRUD）、`/api/combo/build`、`/api/combo/chat/stream`
+
+---
 ## 项目现在能做什么
-
 - 用 PixiJS 画布可视化搭建 Agent，支持自由搭配和按配方一键铺层
 - 自动识别食材组合，对应不同的 LangGraph 配方
 - 在搭建页展示场景卡、协作摘要、角色分工和阶段链路
@@ -24,7 +57,6 @@
 - 支持内置工具、CLI 工具、MCP 工具三类工具来源
 - 支持服务端导出一个可独立运行的 Python 后端 ZIP 项目
 - 前端是纯静态页面，无需额外前端构建步骤
-
 ---
 
 ## 食材与 Agent 能力映射

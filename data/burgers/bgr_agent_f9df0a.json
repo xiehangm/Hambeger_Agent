@@ -1,0 +1,59 @@
+{
+  "burger_id": "bgr_agent_f9df0a",
+  "name": "意图识别 + 审批工具 Agent",
+  "description": "",
+  "created_at": "2026-04-24T16:35:41",
+  "updated_at": "2026-04-24T16:35:41",
+  "config": {
+    "valid": true,
+    "agent_type": "intent_approval_tool_agent",
+    "agent_label": "意图识别 + 审批工具 Agent",
+    "cheese_prompt": "你是一个有用的智能助手",
+    "meat_model": "qwen-plus",
+    "vegetables": [
+      "get_weather",
+      "calculate_add"
+    ],
+    "burger_layers": [
+      {
+        "type": "top_bread",
+        "order": 0
+      },
+      {
+        "type": "onion",
+        "order": 1,
+        "config": {
+          "default": "chat"
+        }
+      },
+      {
+        "type": "meat_patty",
+        "order": 2,
+        "config": {
+          "model": "qwen-plus"
+        }
+      },
+      {
+        "type": "lettuce",
+        "order": 3,
+        "config": {
+          "tools": [
+            "get_weather",
+            "calculate_add"
+          ]
+        }
+      },
+      {
+        "type": "pickle",
+        "order": 4,
+        "config": {
+          "hint": "是否允许执行上述工具调用？"
+        }
+      },
+      {
+        "type": "bottom_bread",
+        "order": 5
+      }
+    ]
+  }
+}

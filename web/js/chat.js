@@ -27,6 +27,7 @@ window.BurgerGame = window.BurgerGame || {};
             chatSendBtn: document.getElementById('chat-send-btn'),
             chatBackBtn: document.getElementById('chat-back-btn'),
             chatDownloadBtn: document.getElementById('chat-download-btn'),
+            chatSaveBurgerBtn: document.getElementById('chat-save-burger-btn'),
             chatConfigSummary: document.getElementById('chat-config-summary'),
             chatStatus: document.getElementById('chat-status'),
             chatSceneOverview: document.getElementById('chat-scene-overview'),
@@ -829,6 +830,32 @@ window.BurgerGame = window.BurgerGame || {};
         }
         if (els.chatBackBtn) els.chatBackBtn.addEventListener('click', switchToBuildView);
         if (els.chatDownloadBtn) els.chatDownloadBtn.addEventListener('click', downloadBackend);
+        if (els.chatSaveBurgerBtn) els.chatSaveBurgerBtn.addEventListener('click', saveCurrentBurgerAsDish);
+    }
+
+    async function saveCurrentBurgerAsDish() {
+        if (!currentBurgerJSON) {
+            if (BurgerGame.showToast) BurgerGame.showToast('当前没有汉堡可保存', 'error');
+            return;
+        }
+        const defaultName = currentBurgerJSON.agent_label || '汉堡菜品';
+        const name = window.prompt('给这道菜品起个名字：', defaultName);
+        if (!name) return;
+        if (BurgerGame.Combo && BurgerGame.Combo.saveCurrentBurger) {
+            await BurgerGame.Combo.saveCurrentBurger(currentBurgerJSON, name);
+        } else {
+            try {
+                const resp = await fetch('/api/burgers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, config: currentBurgerJSON }),
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+                BurgerGame.showToast && BurgerGame.showToast('💾 已保存为菜品', 'success');
+            } catch (e) {
+                BurgerGame.showToast && BurgerGame.showToast('保存失败: ' + e.message, 'error');
+            }
+        }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
