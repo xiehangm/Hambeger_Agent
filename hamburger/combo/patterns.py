@@ -439,3 +439,266 @@ def build_evaluator(
         {"accept": "_finalize", "retry": "_generator"},
     )
     sg.add_edge("_finalize", END)
+
+
+# ============================================================
+#  ☎️ 动态路由套餐 (Dynamic Routing) —— PR-D
+# ============================================================
+# config 结构：
+# {
+#   "entry": "triage",
+#   "agents": [
+#     {"node_id": "triage",  "burger_id": "bgr_a"},
+#     {"node_id": "weather", "burger_id": "bgr_b"},
+#     {"node_id": "math",    "burger_id": "bgr_c"}
+#   ],
+#   "fallback": "triage"   # 没有 handoff 时把哪个 Agent 的输出当最终答案；默认 entry
+# }
+def build_dynamic_routing(
+    sg: StateGraph,
+    cfg: Dict[str, Any],
+    wrap: Callable[..., Any],
+) -> None:
+    """单跳动态路由：起点 Agent 跑完看 handoff_request，命中目标则交棒，否则收尾。"""
+    entry = cfg.get("entry")
+    agents: List[Dict[str, Any]] = cfg.get("agents") or []
+    fallback = cfg.get("fallback") or entry
+    if not entry:
+        raise ValueError("dynamic_routing: 必须提供 entry")
+    if not agents:
+        raise ValueError("dynamic_routing: agents 为空")
+
+    node_ids = [a["node_id"] for a in agents]
+    if entry not in node_ids:
+        raise ValueError(f"dynamic_routing: entry {entry} 不在 agents 列表里")
+
+    for a in agents:
+        sg.add_node(
+            a["node_id"],
+            wrap(a["node_id"], a["burger_id"], input_field="user_input"),
+        )
+
+    def _finalize(state: ComboState) -> Dict[str, Any]:
+        outs = state.get("burger_outputs") or {}
+        chosen = state.get("active_agent") or fallback
+        return {
+            "final_output": outs.get(chosen, ""),
+            "combo_trace": [{"kind": "final", "source": chosen}],
+        }
+
+    sg.add_node("_finalize", _finalize)
+
+    sg.add_edge(START, entry)
+
+    others = [nid for nid in node_ids if nid != entry]
+
+    def _route_handoff(state: ComboState, _entry=entry, _others=tuple(others)) -> str:
+        req = state.get("handoff_request") or {}
+        target = req.get("target")
+        if target and target in _others:
+            return target
+        return "_finalize"
+
+    sg.add_conditional_edges(
+        entry,
+        _route_handoff,
+        {**{nid: nid for nid in others}, "_finalize": "_finalize"},
+    )
+
+    for nid in others:
+        sg.add_edge(nid, "_finalize")
+
+    sg.add_edge("_finalize", END)
+
+
+# ============================================================
+#  Supervisor / Hierarchical 套餐 —— PR-E
+# ============================================================
+def _parse_directive(text: str, worker_ids: List[str]) -> Dict[str, Any]:
+    """从 supervisor 回复中抽取 next/instruction。优先 JSON，正则兜底。"""
+    import json as _json
+    import re as _re
+    matches = _re.findall(r"\{[^{}]+\}", text or "")
+    for m in reversed(matches):
+        try:
+            obj = _json.loads(m)
+        except Exception:
+            continue
+        nxt = obj.get("next")
+        if nxt == "DONE" or nxt in worker_ids:
+            return {"next": nxt, "instruction": obj.get("instruction", "")}
+    upper = (text or "").upper()
+    if "DONE" in upper:
+        return {"next": "DONE", "instruction": ""}
+    for wid in worker_ids:
+        if wid.upper() in upper:
+            return {"next": wid, "instruction": text or ""}
+    return {"next": "DONE", "instruction": ""}
+
+
+# config 结构：
+# {
+#   "supervisor": {"node_id": "boss", "burger_id": "bgr_supervisor"},
+#   "workers": [
+#     {"node_id": "researcher", "burger_id": "bgr_x"},
+#     {"node_id": "writer",     "burger_id": "bgr_y"}
+#   ],
+#   "max_iterations": 6,
+#   "supervisor_input_template": "...{user_input}...{burger_outputs}..."
+# }
+def build_supervisor(
+    sg: StateGraph,
+    cfg: Dict[str, Any],
+    wrap: Callable[..., Any],
+) -> None:
+    """监督者循环：boss 决策 → 派给 worker → 回到 boss → 直到 DONE 或达上限。"""
+    sup_cfg = cfg.get("supervisor") or {}
+    workers: List[Dict[str, Any]] = cfg.get("workers") or []
+    if not sup_cfg or not workers:
+        raise ValueError("supervisor: 必须提供 supervisor + workers")
+    max_iter = int(cfg.get("max_iterations") or 6)
+    sup_tpl = cfg.get("supervisor_input_template") or (
+        "用户原始目标：{user_input}\n已完成工作：{burger_outputs}\n"
+        "请输出 JSON：{{\"next\": worker_id 或 \"DONE\", \"instruction\": \"...\"}}"
+    )
+
+    sup_id: str = sup_cfg["node_id"]
+    worker_ids = [w["node_id"] for w in workers]
+
+    # 监督者：先调底层 wrap 跑一遍 BurgerAgent，再解析回复为 directive
+    sup_inner = wrap(sup_id, sup_cfg["burger_id"], input_template=sup_tpl)
+
+    async def _supervisor(state: ComboState, _sup=sup_inner, _wids=tuple(worker_ids), _sid=sup_id) -> Dict[str, Any]:
+        result = await _sup(state)
+        reply = (result.get("burger_outputs") or {}).get(_sid, "")
+        directive = _parse_directive(reply, list(_wids))
+        result["supervisor_directive"] = directive
+        result["iteration"] = (state.get("iteration") or 0) + 1
+        return result
+
+    sg.add_node(sup_id, _supervisor)
+
+    for w in workers:
+        sg.add_node(
+            w["node_id"],
+            wrap(
+                w["node_id"], w["burger_id"],
+                input_template="{supervisor_directive[instruction]}",
+            ),
+        )
+
+    def _finalize(state: ComboState, _wids=tuple(worker_ids)) -> Dict[str, Any]:
+        outs = state.get("burger_outputs") or {}
+        for nid in reversed(state.get("visited_agents") or []):
+            if nid in _wids and outs.get(nid):
+                return {
+                    "final_output": outs[nid],
+                    "combo_trace": [{"kind": "final", "source": nid}],
+                }
+        return {
+            "final_output": "",
+            "combo_trace": [{"kind": "final", "source": ""}],
+        }
+
+    sg.add_node("_finalize", _finalize)
+
+    sg.add_edge(START, sup_id)
+
+    def _dispatch(state: ComboState, _wids=tuple(worker_ids), _max=max_iter) -> str:
+        directive = state.get("supervisor_directive") or {}
+        nxt = directive.get("next")
+        if nxt == "DONE":
+            return "_finalize"
+        if (state.get("iteration") or 0) >= _max:
+            return "_finalize"
+        if nxt in _wids:
+            return nxt
+        return "_finalize"
+
+    sg.add_conditional_edges(
+        sup_id,
+        _dispatch,
+        {**{wid: wid for wid in worker_ids}, "_finalize": "_finalize"},
+    )
+
+    for wid in worker_ids:
+        sg.add_edge(wid, sup_id)
+
+    sg.add_edge("_finalize", END)
+
+
+# ============================================================
+#  Handoff 套餐 (\u9012\u5f52\u8f6c\u4ea4) \u2014\u2014 PR-F
+# ============================================================
+# config \u7ed3\u6784\uff1a
+# {
+#   "entry": "triage",
+#   "agents": [{"node_id": "triage", "burger_id": "..."}, ...],
+#   "max_hops": 6,
+#   "allow_revisit": false
+# }
+def build_handoff(
+    sg: StateGraph,
+    cfg: Dict[str, Any],
+    wrap: Callable[..., Any],
+) -> None:
+    """\u591a\u8df3 handoff\uff1a\u4efb\u610f Agent \u8dd1\u5b8c\u90fd\u53ef\u8bfb handoff_request \u8df3\u5230\u4e0b\u4e00\u4e2a Agent\u3002
+
+    \u4e24\u9053\u4fdd\u62a4\uff1a
+      - max_hops      : visited_agents \u8fbe\u4e0a\u9650\u5373\u7ec8\u6b62
+      - allow_revisit : \u4e3a False \u65f6\uff0c\u8df3\u56de\u5df2\u8bbf\u95ee\u8fc7\u7684 Agent \u88ab\u62e6\u5230 _finalize
+    """
+    entry = cfg.get("entry")
+    agents: List[Dict[str, Any]] = cfg.get("agents") or []
+    if not entry:
+        raise ValueError("handoff: \u5fc5\u987b\u63d0\u4f9b entry")
+    if not agents:
+        raise ValueError("handoff: agents \u4e3a\u7a7a")
+
+    max_hops = int(cfg.get("max_hops") or 6)
+    allow_revisit = bool(cfg.get("allow_revisit") or False)
+
+    node_ids = [a["node_id"] for a in agents]
+    if entry not in node_ids:
+        raise ValueError(f"handoff: entry {entry} \u4e0d\u5728 agents \u91cc")
+
+    for a in agents:
+        sg.add_node(
+            a["node_id"],
+            wrap(a["node_id"], a["burger_id"], input_field="user_input"),
+        )
+
+    def _finalize(state: ComboState) -> Dict[str, Any]:
+        outs = state.get("burger_outputs") or {}
+        chosen = state.get("active_agent") or entry
+        return {
+            "final_output": outs.get(chosen, ""),
+            "combo_trace": [{"kind": "final", "source": chosen}],
+        }
+
+    sg.add_node("_finalize", _finalize)
+
+    def _route(
+        state: ComboState,
+        _ids=tuple(node_ids),
+        _max=max_hops,
+        _revisit=allow_revisit,
+    ) -> str:
+        visited = state.get("visited_agents") or []
+        if len(visited) >= _max:
+            return "_finalize"
+        req = state.get("handoff_request") or {}
+        target = req.get("target")
+        if not target or target not in _ids:
+            return "_finalize"
+        if not _revisit and target in visited:
+            return "_finalize"
+        return target
+
+    sg.add_edge(START, entry)
+
+    branches = {**{n: n for n in node_ids}, "_finalize": "_finalize"}
+    for nid in node_ids:
+        sg.add_conditional_edges(nid, _route, branches)
+
+    sg.add_edge("_finalize", END)

@@ -1,14 +1,7 @@
-from typing import TypedDict, Annotated, Sequence, Any, Optional, List, Set
+from typing import TypedDict, Annotated, Sequence, Any, Optional, List
 import operator
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-
-
-def _merge_sets(a: Optional[Set[str]], b: Optional[Set[str]]) -> Set[str]:
-    """🌶️ Chili 用的集合并 reducer —— 给 Annotated[set, ...] 使用"""
-    out: Set[str] = set(a or [])
-    out |= set(b or [])
-    return out
 
 
 class HamburgerState(TypedDict, total=False):
@@ -38,11 +31,17 @@ class HamburgerState(TypedDict, total=False):
     # 工具调用轨迹（流式前端可读）
     tool_trace: List[dict]
 
+    # I-3：Vegetable 拆出的远程工具调用。元素结构：
+    # {"target": str, "tool_call_id": str, "name": str, "args": dict}
+    pending_delegations: Annotated[List[dict], operator.add]
+
     # 🧅 Onion 路由器写入：本次请求被分类到的意图分支
     intent: Optional[str]
 
-    # 🌶️ Chili Reducer 演示：多节点可并发追加的分数（用 operator.add 合并 list）
-    scores: Annotated[List[int], operator.add]
+    # I-2：Onion mode=ask_router 时写入，请总网关代为路由。
+    # 形式：{"hint": str, "candidates": List[str]}。
+    ask_router_request: Optional[dict]
 
-    # 🌶️ Chili Reducer 演示：集合并（展示自定义 reducer）
-    tags: Annotated[Set[str], _merge_sets]
+    # PR-B：Onion / Cheese / 自定义节点可写入转交目标。
+    # 套餐内 ComboGateway 会读取；单 Agent 跑时被忽略。
+    handoff_target: Optional[str]

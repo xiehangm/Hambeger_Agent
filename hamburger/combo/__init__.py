@@ -8,11 +8,13 @@ hamburger/combo — 汉堡套餐（LangGraph 工作流）
   - 评委套餐 (Evaluator-Optimizer)
 """
 from hamburger.combo.state import ComboState
+from hamburger.combo.gateway import ComboGateway
 from hamburger.combo.compiler import compile_combo, PATTERN_KINDS
 from hamburger.combo import registry as combo_registry
 
 __all__ = [
     "ComboState",
+    "ComboGateway",
     "compile_combo",
     "PATTERN_KINDS",
     "combo_registry",

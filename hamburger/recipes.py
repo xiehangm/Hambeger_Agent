@@ -150,7 +150,7 @@ RECIPES: List[Recipe] = [
         "description": "先识别用户意图，再由 AI 规划工具调用；真正执行前暂停等待人工审批",
         "emoji": "🧅🛡️",
         "required_set": ["top_bread", "onion", "meat_patty", "lettuce", "pickle", "bottom_bread"],
-        "forbidden": ["tomato", "chili"],
+        "forbidden": ["tomato"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
             {"id": "onion", "type": "onion", "params": {"default": "chat"}},
@@ -178,7 +178,7 @@ RECIPES: List[Recipe] = [
         "emoji": "🛡️",
         # 🥒 pickle = HITL 审批关卡（LangGraph interrupt_before）
         "required_set": ["top_bread", "cheese", "meat_patty", "lettuce", "pickle", "bottom_bread"],
-        "forbidden": ["onion", "chili"],
+        "forbidden": ["onion"],
         "nodes": [
             {"id": "cheese", "type": "cheese"},
             {"id": "top_bread", "type": "top_bread"},
@@ -208,7 +208,7 @@ RECIPES: List[Recipe] = [
         "description": "先识别用户意图，再由 AI 自主决定是否调用工具以及调用哪个工具",
         "emoji": "🧅🤖",
         "required_set": ["top_bread", "onion", "meat_patty", "lettuce", "bottom_bread"],
-        "forbidden": ["pickle", "tomato", "chili"],
+        "forbidden": ["pickle", "tomato"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
             {"id": "onion", "type": "onion", "params": {"default": "chat"}},
@@ -234,7 +234,7 @@ RECIPES: List[Recipe] = [
         "description": "挂载了外部工具的智能 Agent，能自主决定调用哪个工具来完成任务",
         "emoji": "🤖",
         "required_set": ["top_bread", "cheese", "meat_patty", "lettuce", "bottom_bread"],
-        "forbidden": ["tomato", "pickle", "onion", "chili"],
+        "forbidden": ["tomato", "pickle", "onion"],
         "nodes": [
             {"id": "cheese", "type": "cheese"},
             {"id": "top_bread", "type": "top_bread"},
@@ -261,7 +261,7 @@ RECIPES: List[Recipe] = [
         "description": "使用默认提示词的工具调用 Agent，自动挂载画布上的工具",
         "emoji": "🔧",
         "required_set": ["top_bread", "meat_patty", "lettuce", "bottom_bread"],
-        "forbidden": ["cheese", "tomato", "pickle", "onion", "chili"],
+        "forbidden": ["cheese", "tomato", "pickle", "onion"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
             {"id": "meat", "type": "meat_patty"},
@@ -287,7 +287,7 @@ RECIPES: List[Recipe] = [
         "emoji": "🧠",
         # 画布布局：top_bread + cheese + meat + tomato(记忆信号层) + bottom_bread
         "required_set": ["top_bread", "cheese", "meat_patty", "tomato", "bottom_bread"],
-        "forbidden": ["lettuce", "pickle", "onion", "chili"],
+        "forbidden": ["lettuce", "pickle", "onion"],
         "nodes": [
             {"id": "cheese", "type": "cheese"},
             {"id": "top_bread", "type": "top_bread"},
@@ -312,7 +312,7 @@ RECIPES: List[Recipe] = [
         "description": "通过芝士层注入系统提示词，针对特定场景提供专业引导式回答（单轮无记忆）",
         "emoji": "🎯",
         "required_set": ["top_bread", "cheese", "meat_patty", "bottom_bread"],
-        "forbidden": ["lettuce", "tomato", "pickle", "onion", "chili"],
+        "forbidden": ["lettuce", "tomato", "pickle", "onion"],
         "nodes": [
             {"id": "cheese", "type": "cheese"},
             {"id": "top_bread", "type": "top_bread"},
@@ -337,7 +337,7 @@ RECIPES: List[Recipe] = [
         "description": "最基础的 LLM 聊天助手，单轮直连大模型（不持久化，加入 🍅 番茄可升级为长程记忆）",
         "emoji": "💬",
         "required_set": ["top_bread", "meat_patty", "bottom_bread"],
-        "forbidden": ["cheese", "lettuce", "tomato", "pickle", "onion", "chili"],
+        "forbidden": ["cheese", "lettuce", "tomato", "pickle", "onion"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
             {"id": "meat", "type": "meat_patty"},
@@ -361,7 +361,7 @@ RECIPES: List[Recipe] = [
         "description": "🧅 洋葱 = LangGraph 条件路由。先把输入分类成 chat/search/compute，再把执行流派发到不同分支",
         "emoji": "🧅",
         "required_set": ["top_bread", "onion", "meat_patty", "bottom_bread"],
-        "forbidden": ["pickle", "tomato", "chili"],
+        "forbidden": ["pickle", "tomato"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
             {"id": "onion", "type": "onion", "params": {"default": "chat"}},
@@ -394,33 +394,32 @@ RECIPES: List[Recipe] = [
         },
         "default_config": {},
     },
-    # ---------- 🌶️ 加分 Reducer 对话 (Chili = custom state reducer) ----------
+    # ---------- 🧅 意图分流 Agent（套餐 dynamic_routing 入口）----------
     {
-        "name": "scored_chat",
-        "label": "带评分的对话",
-        "description": "🌶️ 辣椒 = LangGraph Annotated reducer 演示，向 state.scores/state.tags 累加值（operator.add / 自定义集合并）",
-        "emoji": "🌶️",
-        "required_set": ["top_bread", "meat_patty", "chili", "bottom_bread"],
-        "forbidden": ["pickle", "onion"],
+        "name": "onion_router",
+        "label": "意图分流 Agent",
+        "description": "根据用户意图（chat / search / compute / ...）选择转交目标 Agent；自身不调用工具",
+        "emoji": "🧅",
+        "required_set": ["top_bread", "onion", "bottom_bread"],
+        "forbidden": ["meat_patty", "vegetable", "pickle", "tomato", "cheese"],
         "nodes": [
             {"id": "top_bread", "type": "top_bread"},
-            {"id": "meat", "type": "meat_patty"},
-            {"id": "chili", "type": "chili",
-             "params": {"heat": 2, "flavor": "spicy"}},
+            # intent_to_node 由 build_ctx['onion_intent_to_node'] 注入
+            {"id": "onion", "type": "onion", "params": {"default": "chat"}},
             {"id": "bottom_bread", "type": "bottom_bread"},
         ],
         "edges": [
             {"source": "START", "target": "top_bread"},
-            {"source": "top_bread", "target": "meat"},
-            {"source": "meat", "target": "chili"},
-            {"source": "chili", "target": "bottom_bread"},
+            {"source": "top_bread", "target": "onion"},
+            {"source": "onion", "target": "bottom_bread"},
             {"source": "bottom_bread", "target": "END"},
         ],
         "capabilities": {
-            "checkpoint": True,
+            "checkpoint": False,
             "streaming": True,
             "hitl": False,
             "memory": False,
+            "router": True,
         },
         "default_config": {},
     },
@@ -638,7 +637,7 @@ def recipe_summary(recipe: Recipe) -> dict:
 def _suggest_canvas_layers(recipe: Recipe) -> List[str]:
     """
     给画布推荐一套从上到下的铺层顺序。
-    top_bread → cheese? → onion? → meat_patty → chili? → lettuce? → pickle? → tomato? → bottom_bread
+    top_bread → cheese? → onion? → meat_patty → lettuce? → pickle? → tomato? → bottom_bread
     """
     req = set(recipe.get("required_set", []))
     order = ["top_bread"]
@@ -647,8 +646,6 @@ def _suggest_canvas_layers(recipe: Recipe) -> List[str]:
     if "onion" in req:
         order.append("onion")
     order.append("meat_patty")
-    if "chili" in req:
-        order.append("chili")
     if "lettuce" in req:
         order.append("lettuce")
     if "pickle" in req:

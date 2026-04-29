@@ -100,19 +100,6 @@ window.BurgerGame = window.BurgerGame || {};
             category: 'filling',
             defaultConfig: { default: 'chat' },
         },
-        chili: {
-            id: 'chili',
-            name: '辣椒',
-            nameEn: 'Chili',
-            emoji: '🌶️',
-            desc: 'State Reducer 演示 (Annotated)',
-            color: 0xef4444,
-            width: 240,
-            height: 18,
-            configurable: true,
-            category: 'filling',
-            defaultConfig: { heat: 2, flavor: 'spicy' },
-        },
         bottom_bread: {
             id: 'bottom_bread',
             name: '底部面包',
@@ -479,42 +466,6 @@ window.BurgerGame = window.BurgerGame || {};
     }
 
     // =========================================================
-    //  辣椒 — 横卧红椒 + 火花点
-    // =========================================================
-    function drawChili(container, meta) {
-        const w = meta.width, h = meta.height;
-        const g = new PIXI.Graphics();
-
-        // 椒身（胶囊形）
-        g.beginFill(meta.color);
-        g.drawRoundedRect(0, 0, w, h, h / 2);
-        g.endFill();
-
-        // 椒把（左端小绿叶）
-        g.beginFill(0x16a34a);
-        g.drawRoundedRect(-6, h * 0.15, 14, h * 0.7, 3);
-        g.endFill();
-
-        // 高光
-        g.beginFill(lighten(meta.color, 0.4), 0.4);
-        g.drawRoundedRect(w * 0.1, 2, w * 0.6, h * 0.35, h * 0.2);
-        g.endFill();
-
-        // 火花点
-        const sparks = new PIXI.Graphics();
-        sparks.beginFill(0xffd700, 0.9);
-        for (let i = 0; i < 5; i++) {
-            const x = w * (0.2 + 0.15 * i) + (Math.random() - 0.5) * 4;
-            const y = h / 2 + (Math.random() - 0.5) * h * 0.4;
-            sparks.drawCircle(x, y, 1.2);
-        }
-        sparks.endFill();
-
-        container.addChild(g);
-        container.addChild(sparks);
-    }
-
-    // =========================================================
     //  绘制分发
     // =========================================================
     const DRAW_FUNCTIONS = {
@@ -526,7 +477,6 @@ window.BurgerGame = window.BurgerGame || {};
         tomato: drawTomato,
         pickle: drawPickle,
         onion: drawOnion,
-        chili: drawChili,
     };
 
     /**

@@ -70,15 +70,13 @@
 | 🍅 番茄     | Checkpointer 信号层         | 启用长程记忆场景，让同一 `thread_id` 持续记住对话     |
 | 🥒 酸黄瓜   | `interrupt_before` 审批关卡 | 工具真正执行前暂停，等待人工批准或拒绝                |
 | 🧅 洋葱     | `Onion` 条件路由节点        | 先做意图分类，再把执行流分发到不同支路                |
-| 🌶️ 辣椒     | `Chili` reducer 演示节点    | 向状态里累加分数和标签，展示 `Annotated` reducer 效果 |
-| 🍞 底部面包 | `BottomBread`               | 输出整理层，抽取最终可展示回复                        |
+|  底部面包 | `BottomBread`               | 输出整理层，抽取最终可展示回复                        |
 
 状态定义在 `hamburger/state.py`，当前除了 `messages` 之外，还会跟踪：
 
 - `pending_approval`：审批态待确认信息
 - `tool_trace`：工具调用轨迹
 - `intent`：洋葱分类出的意图标签
-- `scores` / `tags`：辣椒节点写入的 reducer 状态
 
 ---
 
@@ -101,7 +99,7 @@
 
 ## 内置配方一览
 
-当前仓库内置 10 条配方，定义都在 `hamburger/recipes.py`。
+当前仓库内置 9 条配方，定义都在 `hamburger/recipes.py`。
 
 | 配方名                    | 代码名                       | 说明                                        |
 | ------------------------- | ---------------------------- | ------------------------------------------- |
@@ -114,7 +112,6 @@
 | 意图识别工具 Agent        | `intent_tool_agent`          | 先识别意图，再由 AI 自主调用工具            |
 | 意图识别 + 审批工具 Agent | `intent_approval_tool_agent` | 先识别意图与规划工具，再等待审批            |
 | 意图路由对话              | `router_chat`                | 洋葱把请求分发到 `chat/search/compute` 支路 |
-| 带评分的对话              | `scored_chat`                | 辣椒节点演示 reducer 对状态的累加与合并     |
 
 ### 结构校验规则
 
@@ -435,7 +432,6 @@ Agent_hambeger/
 │       ├── base.py
 │       ├── bread.py
 │       ├── cheese.py
-│       ├── chili.py
 │       ├── meat.py
 │       ├── onion.py
 │       └── vegetable.py

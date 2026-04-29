@@ -1,16 +1,36 @@
-from typing import Any
+from typing import Any, Optional
 from langchain_core.messages import SystemMessage
 from hamburger.state import HamburgerState
 from hamburger.ingredients.base import HamburgerIngredient
+from hamburger.gateway import AgentCard
 
 
 class Cheese(HamburgerIngredient):
     """
-    芝士片：为主菜增添风味。
+    苒士片：为主菜增添风味。
     核心功能是注入系统提示词 (System Prompt)。
+
+    优先级：显式 system_prompt > 从 AgentCard 拼 > Cheese.DEFAULT。
     """
-    def __init__(self, system_prompt: str):
-        self.system_prompt = system_prompt
+
+    DEFAULT = "你是一个有用的智能助手"
+
+    def __init__(
+        self,
+        system_prompt: Optional[str] = None,
+        *,
+        card: Optional[AgentCard] = None,
+    ):
+        self.system_prompt = system_prompt or self._from_card(card) or self.DEFAULT
+
+    @staticmethod
+    def _from_card(card: Optional[AgentCard]) -> Optional[str]:
+        if not card or not getattr(card, "description", ""):
+            return None
+        tail = ""
+        if card.tool_names:
+            tail = f"\n你可以调用以下工具：{', '.join(card.tool_names)}。"
+        return f"你是 {card.name or card.node_id}。{card.description}{tail}"
 
     def process(self, state: HamburgerState) -> dict[str, Any]:
         # 由于我们希望 SystemMessage 位于消息历史的最上方影响 LLM，

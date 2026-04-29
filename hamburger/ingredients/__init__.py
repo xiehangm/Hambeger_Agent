@@ -4,7 +4,6 @@ from hamburger.ingredients.cheese import Cheese
 from hamburger.ingredients.meat import MeatPatty
 from hamburger.ingredients.vegetable import Vegetable
 from hamburger.ingredients.onion import Onion
-from hamburger.ingredients.chili import Chili
 
 __all__ = [
     "HamburgerIngredient",
@@ -14,5 +13,4 @@ __all__ = [
     "MeatPatty",
     "Vegetable",
     "Onion",
-    "Chili",
 ]

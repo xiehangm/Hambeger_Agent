@@ -25,7 +25,6 @@
     --color-tomato: #e74c3c;
     --color-pickle: #7fb069;
     --color-onion: #c084fc;
-    --color-chili: #ef4444;
     --radius-sm: 8px;
     --radius-md: 14px;
     --radius-lg: 20px;
@@ -507,10 +506,6 @@ h4 {
 
 .ingredient-card[data-type="onion"]::before {
     background: var(--color-onion);
-}
-
-.ingredient-card[data-type="chili"]::before {
-    background: var(--color-chili);
 }
 
 .ingredient-card:hover {

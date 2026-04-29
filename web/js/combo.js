@@ -754,6 +754,30 @@ window.BurgerGame = window.BurgerGame || {};
             case 'evaluator_feedback':
                 addTrace(`⚖️ 第 ${ev.iteration} 轮评委：${ev.grade}${ev.accepted ? ' ✅' : ''} — ${ev.feedback || ''}`, 'evaluate');
                 break;
+            case 'combo_burger_event': {
+                const nid = ev.combo_node_id;
+                const inner = ev.inner || {};
+                const it = inner.type;
+                if (it === 'node') {
+                    addTrace(`  ↳ [${nid}] node ${inner.name} ${inner.status}`, 'inner');
+                } else if (it === 'tool') {
+                    if (inner.status === 'start') {
+                        addTrace(`  ↳ [${nid}] 🔧 ${inner.name} 调用`, 'inner');
+                    } else {
+                        addTrace(`  ↳ [${nid}] 🔧 ${inner.name} 完成`, 'inner');
+                    }
+                } else if (it === 'intent') {
+                    addTrace(`  ↳ [${nid}] 🧅 意图 ${inner.intent}`, 'inner');
+                } else if (it === 'token') {
+                    // token 流量大，仅在抽屉里追加（不刷 trace 列表）
+                    if (typeof appendInnerToken === 'function') appendInnerToken(nid, inner.text || '');
+                } else if (it === 'interrupt') {
+                    addTrace(`  ↳ [${nid}] ⏸ 等待人审`, 'inner');
+                } else if (it === 'error') {
+                    addTrace(`  ↳ [${nid}] ❌ ${inner.detail || ''}`, 'inner');
+                }
+                break;
+            }
             case 'combo_final':
                 addMsg('ai', ev.output || '(空)');
                 break;

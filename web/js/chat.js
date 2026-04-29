@@ -82,7 +82,6 @@ window.BurgerGame = window.BurgerGame || {};
             basic_chat: '💬',
             memory_chat: '🧠',
             router_chat: '🧅',
-            scored_chat: '🌶️',
         }[json.agent_type] || '🍔';
 
         const capChips = [];

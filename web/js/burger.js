@@ -410,7 +410,6 @@ window.BurgerGame = window.BurgerGame || {};
                 vegetable: 'lettuce',
                 pickle: 'pickle',
                 onion: 'onion',
-                chili: 'chili',
                 tomato: 'tomato',
             };
             const nodeToLayer = {};

@@ -13,20 +13,22 @@ from typing import Any, List, Optional, Dict
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import MemorySaver
 
 from hamburger import (
-    compile_recipe,
+    AgentRequest,
+    BurgerAgent,
+    compile_agent,
     get_recipe,
     recipe_summary,
     RECIPES,
 )
 from hamburger.recipes import match_recipe, validate_structure
 from hamburger import registry as burger_registry
-from hamburger.combo import compile_combo, combo_registry, PATTERN_KINDS
+from hamburger.combo import compile_combo, combo_registry, PATTERN_KINDS, ComboGateway
+from hamburger.gateway import AgentEvent
 from hamburger.mcp_loader import (
     get_builtin_servers,
     get_installed_servers,
@@ -53,10 +55,10 @@ app.add_middleware(
 )
 
 # ============================================================
-#  会话存储（thread_id → {graph, recipe, ...}）
+#  会话存储（thread_id → BurgerAgent）
 #  在生产环境中应替换为 Redis / 数据库 + 持久化 Checkpointer
 # ============================================================
-_sessions: Dict[str, Dict[str, Any]] = {}
+_sessions: Dict[str, BurgerAgent] = {}
 # 全局共享的 MemorySaver（跨 session 的线程隔离由 thread_id 保证）
 _checkpointer = MemorySaver()
 
@@ -214,30 +216,25 @@ async def build_burger(config: BuildConfig):
             "cheese_prompt": config.cheese_prompt,
         }
 
-        graph = compile_recipe(recipe, build_ctx, checkpointer=_checkpointer)
-
-        # 分配或复用 thread_id
-        thread_id = config.thread_id or f"thr_{uuid.uuid4().hex[:12]}"
-        _sessions[thread_id] = {
-            "graph": graph,
-            "recipe_name": agent_type,
-            "agent_label": agent_label,
-            "capabilities": dict(recipe.get("capabilities", {})),
-            "model": config.meat_model,
-            "tool_names": [t.name for t in tools if hasattr(t, "name")],
-        }
+        # 每次构建即重编译，产出独立 BurgerAgent 模块
+        agent = compile_agent(
+            recipe, build_ctx,
+            checkpointer=_checkpointer,
+            thread_id=config.thread_id,
+        )
+        _sessions[agent.thread_id] = agent
 
         print(
-            f"[OK] Burger built! thread_id={thread_id} recipe={agent_type} "
+            f"[OK] Burger built! thread_id={agent.thread_id} recipe={agent_type} "
             f"model={config.meat_model} tools={config.vegetables}"
         )
         return {
             "status": "success",
             "message": f"汉堡搭建成功！当前配方：{agent_label}",
-            "thread_id": thread_id,
+            "thread_id": agent.thread_id,
             "agent_type": agent_type,
             "agent_label": agent_label,
-            "capabilities": _sessions[thread_id]["capabilities"],
+            "capabilities": dict(recipe.get("capabilities", {})),
             "recipe_meta": recipe_summary(recipe),
         }
     except HTTPException:
@@ -305,371 +302,81 @@ def _get_session(thread_id: Optional[str]) -> Dict[str, Any]:
     return sess
 
 
-def _serialize_tool_calls(tool_calls: Optional[List[dict]]) -> List[dict]:
-    serialized: List[dict] = []
-    for tc in tool_calls or []:
-        serialized.append({
-            "name": tc.get("name"),
-            "args": tc.get("args") or {},
-            "id": tc.get("id"),
-        })
-    return serialized
-
-
-def _extract_last_ai_message(output: Any) -> Optional[AIMessage]:
-    if isinstance(output, AIMessage):
-        return output
-    if isinstance(output, dict):
-        messages = output.get("messages") or []
-        for msg in reversed(messages):
-            if isinstance(msg, AIMessage):
-                return msg
-    return None
-
-
-def _extract_intent(output: Any) -> Optional[str]:
-    if isinstance(output, dict):
-        intent = output.get("intent")
-        if intent:
-            return str(intent)
-    return None
-
-
-def _intent_label(intent: Optional[str]) -> str:
-    mapping = {
-        "chat": "闲聊 / 直接回答",
-        "search": "搜索 / 查找信息",
-        "compute": "计算 / 求值",
-    }
-    return mapping.get(intent or "", intent or "未知")
-
-
-def _build_pending_from_snapshot(snapshot, recipe) -> dict:
-    """
-    在 interrupt_before 暂停时，LangGraph 尚未进入 pickle 节点，
-    所以 state.pending_approval 是空的。这里直接从 messages 最后一条
-    AIMessage 现场解析 tool_calls，合成一个可以渲染的 pending 载荷。
-    """
-    values = (snapshot.values if snapshot else None) or {}
-    messages = values.get("messages") or []
-    last = messages[-1] if messages else None
-
-    pending_tools: List[dict] = []
-    if isinstance(last, AIMessage):
-        pending_tools = _serialize_tool_calls(
-            getattr(last, "tool_calls", []) or [])
-
-    # 从 recipe 的 pickle 节点 params 中读 hint
-    hint = "是否允许执行上述工具调用？"
-    for node in (recipe or {}).get("nodes", []) or []:
-        if node.get("type") == "pickle":
-            hint = (node.get("params") or {}).get("hint", hint)
-            break
-
-    # 合并 values 里已有的 pending_approval（如果恢复后节点已执行过）
-    existing = values.get("pending_approval") or {}
-    if existing.get("tool_calls"):
-        return existing
-
-    return {"hint": hint, "tool_calls": pending_tools}
-
-
-def _extract_reply_from_state(state: Dict[str, Any]) -> str:
-    """从 graph 状态中提取可展示的回复文本。"""
-    if state.get("output_text"):
-        return state["output_text"]
-    messages = state.get("messages") or []
-    if messages:
-        last = messages[-1]
-        content = getattr(last, "content", None)
-        if content:
-            return content
-    return ""
-
-
-def _serialize_node_event(ev: dict) -> Optional[dict]:
-    """把 astream_events v2 的事件压缩成前端需要的最小 payload。"""
-    etype = ev.get("event", "")
-    if etype not in ("on_chain_start", "on_chain_end", "on_tool_start", "on_tool_end"):
-        return None
-    name = ev.get("name", "")
-    # 仅保留我们的节点名（top_bread/cheese/meat/vegetable/pickle/bottom_bread）+ 工具事件
-    interesting_nodes = {"top_bread", "cheese", "meat",
-                         "vegetable", "pickle", "bottom_bread"}
-    if etype.startswith("on_chain_") and name not in interesting_nodes:
-        return None
-    return {
-        "kind": etype,
-        "name": name,
-        "run_id": ev.get("run_id"),
-    }
-
-
+# ============================================================
+#  SSE 工具（仅 combo 路径继续使用；单 Agent 链路已改为 AgentEvent.to_sse）
+# ============================================================
 def _sse(obj: dict) -> bytes:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
-async def _stream_chat(thread_id: str, message: Optional[str]):
-    """
-    统一的流式生成器：
-      - 若 message 非空：作为新的 user input 启动一轮对话
-      - 若 message 为空 / None：视为"resume"（不注入新 input，走之前 interrupt 后的继续）
-    事件格式：
-      data: {"type": "node", "name": "...", "status": "start|end"}
-      data: {"type": "tool", "name": "...", "status": "start|end"}
-      data: {"type": "interrupt", "pending": {...}}
-      data: {"type": "final", "reply": "...", "messages": N}
-      data: {"type": "error", "detail": "..."}
-      data: {"type": "done"}
-    """
-    sess = _sessions.get(thread_id)
-    if sess is None:
-        yield _sse({"type": "error", "detail": f"会话不存在: {thread_id}"})
-        yield _sse({"type": "done"})
-        return
+# ============================================================
+#  单 Agent 聊天链路：全部委托给 BurgerAgent + 网关
+# ============================================================
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+    "Content-Type": "text/event-stream; charset=utf-8",
+}
 
-    graph = sess["graph"]
-    recipe_name = sess.get("recipe_name")
-    recipe = get_recipe(recipe_name) if recipe_name else None
-    capabilities = (recipe or {}).get("capabilities", {}) or {}
-    uses_checkpointer = bool(
-        capabilities.get("memory") or capabilities.get("hitl")
-    )
-    cfg = {"configurable": {"thread_id": thread_id}}
-    final_state_from_events: Dict[str, Any] = {}
+#: 单 Agent SSE 只外送这些事件；handoff/delegate/ask_router 为套餐内部事件，不走 SSE。
+SSE_PUBLIC_KINDS = {
+    "node", "tool", "tool_plan", "intent",
+    "token", "interrupt", "final", "error", "done",
+}
 
-    if message:
-        inp = {"input_text": message, "messages": []}
-    else:
-        inp = None  # resume
 
-    try:
-        async for ev in graph.astream_events(inp, config=cfg, version="v2"):
-            etype = ev.get("event", "")
-            name = ev.get("name", "")
-            interesting_nodes = {"top_bread", "cheese", "onion", "meat",
-                                 "vegetable", "pickle", "bottom_bread"}
-            if etype == "on_chain_start" and name in interesting_nodes:
-                yield _sse({"type": "node", "name": name, "status": "start"})
-                # 每个事件后让出一次，避免 uvicorn 把多个 SSE 合并成一包发送
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and name in interesting_nodes:
-                data = ev.get("data") or {}
-                output = data.get("output")
-                if name == "onion":
-                    intent = _extract_intent(output)
-                    if intent:
-                        yield _sse({
-                            "type": "intent",
-                            "intent": intent,
-                            "label": _intent_label(intent),
-                        })
-                        await asyncio.sleep(0)
-                elif name == "meat":
-                    ai_msg = _extract_last_ai_message(output)
-                    if ai_msg is not None and getattr(ai_msg, "tool_calls", None):
-                        yield _sse({
-                            "type": "tool_plan",
-                            "tool_calls": _serialize_tool_calls(ai_msg.tool_calls),
-                            "summary": (ai_msg.content or "")[:160],
-                        })
-                        await asyncio.sleep(0)
-                if name == "bottom_bread":
-                    if isinstance(output, dict):
-                        final_state_from_events = output
-                yield _sse({"type": "node", "name": name, "status": "end"})
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and name == "LangGraph":
-                data = ev.get("data") or {}
-                output = data.get("output")
-                if isinstance(output, dict):
-                    final_state_from_events = output
-            elif etype == "on_tool_start":
-                data = ev.get("data") or {}
-                yield _sse({
-                    "type": "tool",
-                    "name": name,
-                    "status": "start",
-                    "input": data.get("input"),
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_tool_end":
-                data = ev.get("data") or {}
-                out = data.get("output")
-                out_str = None
-                if out is not None:
-                    try:
-                        if hasattr(out, "content"):
-                            out_str = getattr(out, "content", None)
-                        elif isinstance(out, dict) and out.get("content"):
-                            out_str = out.get("content")
-                        else:
-                            out_str = str(out)
-                        if len(out_str) > 400:
-                            out_str = out_str[:400] + "..."
-                    except Exception:
-                        out_str = None
-                yield _sse({
-                    "type": "tool",
-                    "name": name,
-                    "status": "end",
-                    "output": out_str,
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chat_model_stream":
-                # 🌊 真正的 LLM token 流：逐 chunk 推给前端
-                data = ev.get("data") or {}
-                chunk = data.get("chunk")
-                text = None
-                if chunk is not None:
-                    content = getattr(chunk, "content", None)
-                    if isinstance(content, str):
-                        text = content
-                    elif isinstance(content, list):
-                        # 一些 provider 返回 list[dict]，提取 text 字段
-                        parts = []
-                        for part in content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                parts.append(part.get("text", ""))
-                        text = "".join(parts) if parts else None
-                if text:
-                    yield _sse({"type": "token", "text": text})
-                    await asyncio.sleep(0)
+async def _agent_event_stream(agent: BurgerAgent, req: AgentRequest):
+    """把 BurgerAgent.stream 的 AgentEvent 序列化为 SSE 字节流。"""
+    async for ev in agent.stream(req):
+        if ev.kind not in SSE_PUBLIC_KINDS:
+            continue
+        yield ev.to_sse()
+        await asyncio.sleep(0)
 
-        # 流结束后读取当前状态，判断是否被 interrupt 暂停
-        if uses_checkpointer:
-            snapshot = graph.get_state(cfg)
-            next_nodes = list(
-                snapshot.next) if snapshot and snapshot.next else []
-            if next_nodes:
-                # 仍有待执行的节点 → 处于 interrupt 暂停态
-                pending = _build_pending_from_snapshot(snapshot, recipe)
-                yield _sse({
-                    "type": "interrupt",
-                    "next": next_nodes,
-                    "pending": pending,
-                })
-            else:
-                final_state = snapshot.values if snapshot else final_state_from_events
-                reply = _extract_reply_from_state(final_state)
-                yield _sse({
-                    "type": "final",
-                    "reply": reply,
-                    "messages": len(final_state.get("messages") or []),
-                })
-        else:
-            final_state = final_state_from_events
-            reply = _extract_reply_from_state(final_state)
-            yield _sse({
-                "type": "final",
-                "reply": reply,
-                "messages": len(final_state.get("messages") or []),
-            })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        yield _sse({"type": "error", "detail": str(e)})
 
-    yield _sse({"type": "done"})
+async def _agent_resume_stream(agent: BurgerAgent, approved: bool, note: Optional[str]):
+    async for ev in agent.resume(approved, note):
+        if ev.kind not in SSE_PUBLIC_KINDS:
+            continue
+        yield ev.to_sse()
+        await asyncio.sleep(0)
 
 
 @app.post("/api/chat")
 async def chat_burger(req: ChatRequest):
-    """
-    非流式聊天：兼容旧的简单调用。新前端推荐使用 /api/chat/stream。
-    """
-    sess = _get_session(req.thread_id)
-    graph = sess["graph"]
-    recipe = get_recipe(sess.get("recipe_name")) if sess.get(
-        "recipe_name") else None
-    cfg = {"configurable": {"thread_id": req.thread_id}}
-
-    try:
-        final_state = await graph.ainvoke(
-            {"input_text": req.message, "messages": []},
-            config=cfg,
-        )
-        snapshot = graph.get_state(cfg)
-        next_nodes = list(snapshot.next) if snapshot and snapshot.next else []
-        if next_nodes:
-            pending = _build_pending_from_snapshot(snapshot, recipe)
-            return {
-                "status": "interrupted",
-                "thread_id": req.thread_id,
-                "next": next_nodes,
-                "pending": pending,
-            }
-        return {
-            "status": "success",
-            "thread_id": req.thread_id,
-            "reply": _extract_reply_from_state(final_state),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """非流式聊天：等价于消费一次 stream 直到拿到 final / interrupt / error。"""
+    agent = _get_session(req.thread_id)
+    final = await agent.invoke(AgentRequest(message=req.message))
+    if final.kind == "final":
+        return {"status": "success", "thread_id": agent.thread_id,
+                "reply": final.payload.get("reply", "")}
+    if final.kind == "interrupt":
+        return {"status": "interrupted", "thread_id": agent.thread_id,
+                "next": final.payload.get("next", []),
+                "pending": final.payload.get("pending", {})}
+    raise HTTPException(status_code=500, detail=final.payload.get("detail", "未知错误"))
 
 
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest):
     """SSE 流式聊天接口。"""
-    if not req.thread_id:
-        raise HTTPException(status_code=400, detail="缺少 thread_id")
-    if req.thread_id not in _sessions:
-        raise HTTPException(status_code=404, detail="会话不存在或已过期")
+    agent = _get_session(req.thread_id)
     return StreamingResponse(
-        _stream_chat(req.thread_id, req.message),
+        _agent_event_stream(agent, AgentRequest(message=req.message)),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-            "Content-Type": "text/event-stream; charset=utf-8",
-        },
+        headers=SSE_HEADERS,
     )
 
 
 @app.post("/api/chat/resume")
 async def chat_resume(req: ResumeRequest):
-    """
-    HITL：从 interrupt 状态继续执行（或根据 approved=False 撤销待审批操作）。
-    """
-    sess = _get_session(req.thread_id)
-    graph = sess["graph"]
-    cfg = {"configurable": {"thread_id": req.thread_id}}
-
-    if not req.approved:
-        # 拒绝：清空最后一条 AIMessage 的 tool_calls，让图从下一步直接走到 bottom_bread
-        # 简化处理：把一条拒绝说明作为 AIMessage 追加，然后从 pickle 之后跳过 vegetable
-        from langchain_core.messages import AIMessage
-        reject_note = req.note or "用户拒绝了本次工具调用。"
-        graph.update_state(
-            cfg,
-            {
-                "messages": [AIMessage(content=reject_note)],
-                "pending_approval": None,
-            },
-            as_node="pickle",
-        )
-        # 直接跳到 bottom_bread：走一次 invoke 让流程收尾
-        try:
-            final_state = await graph.ainvoke(None, config=cfg)
-            return {
-                "status": "rejected",
-                "thread_id": req.thread_id,
-                "reply": _extract_reply_from_state(final_state),
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # 同意：直接 resume（传 None 走 checkpoint 续跑）
+    """HITL：从 interrupt 状态继续执行；approved=False 时走拒绝分支。"""
+    agent = _get_session(req.thread_id)
     return StreamingResponse(
-        _stream_chat(req.thread_id, None),
+        _agent_resume_stream(agent, req.approved, req.note),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-            "Content-Type": "text/event-stream; charset=utf-8",
-        },
+        headers=SSE_HEADERS,
     )
 
 
@@ -729,7 +436,8 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 {tool_import}
-from hamburger import compile_recipe, get_recipe
+from hamburger.builder import compile_recipe
+from hamburger import get_recipe
 from hamburger.ingredients import TopBread, BottomBread, Cheese, MeatPatty, Vegetable
 
 load_dotenv()
@@ -913,7 +621,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 {tool_import}
-from hamburger import compile_recipe, get_recipe
+from hamburger.builder import compile_recipe
+from hamburger import get_recipe
 from hamburger.ingredients import TopBread, BottomBread, Cheese, MeatPatty, Vegetable
 
 load_dotenv()
@@ -1230,6 +939,7 @@ async def api_combo_build(req: ComboBuildRequest):
     combo_recipe = {"pattern": pattern, "config": combo_cfg}
 
     try:
+        gateway = ComboGateway()
         graph = compile_combo(
             combo_recipe,
             loader=_combo_burger_loader,
@@ -1237,6 +947,7 @@ async def api_combo_build(req: ComboBuildRequest):
                 req.cheese_prompt, req.meat_model),
             llm_factory=lambda: _make_llm(req.meat_model),
             checkpointer=_combo_checkpointer,
+            gateway=gateway,
         )
     except HTTPException:
         raise
@@ -1248,6 +959,7 @@ async def api_combo_build(req: ComboBuildRequest):
     thread_id = req.thread_id or f"cmb_{uuid.uuid4().hex[:12]}"
     _combo_sessions[thread_id] = {
         "graph": graph,
+        "gateway": gateway,
         "pattern": pattern,
         "config": combo_cfg,
         "combo_id": req.combo_id,
@@ -1272,6 +984,61 @@ def _combo_extract_node_name(ev: dict) -> Optional[str]:
     return nm or name
 
 
+def _serialize_outer_event(
+    ev: dict,
+    sess: Dict[str, Any],
+    burger_node_ids: set,
+    started_nodes: set,
+    finished_nodes: set,
+    final_state_ref: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """把 astream_events v2 事件翻译成外层 SSE payload；不需要透出则返回 None。"""
+    etype = ev.get("event", "")
+    node_name = _combo_extract_node_name(ev)
+
+    if etype == "on_chain_start" and node_name in burger_node_ids and node_name not in started_nodes:
+        started_nodes.add(node_name)
+        return {"type": "combo_burger_start", "node_id": node_name}
+    if etype == "on_chain_end" and node_name in burger_node_ids and node_name not in finished_nodes:
+        finished_nodes.add(node_name)
+        data = ev.get("data") or {}
+        out = data.get("output") or {}
+        reply = ""
+        if isinstance(out, dict):
+            bo = out.get("burger_outputs") or {}
+            reply = bo.get(node_name, "") if isinstance(bo, dict) else ""
+        return {
+            "type": "combo_burger_end",
+            "node_id": node_name,
+            "output": reply[:2000] if isinstance(reply, str) else "",
+        }
+    if etype == "on_chain_end" and node_name == "_router":
+        out = (ev.get("data") or {}).get("output") or {}
+        return {
+            "type": "router_decision",
+            "route": out.get("route_decision"),
+            "why": out.get("route_justification"),
+        }
+    if etype == "on_chain_end" and node_name == "_orchestrator":
+        out = (ev.get("data") or {}).get("output") or {}
+        return {"type": "work_plan", "sections": out.get("work_plan") or []}
+    if etype == "on_chain_end" and node_name == "_evaluator":
+        out = (ev.get("data") or {}).get("output") or {}
+        ev_obj = out.get("evaluation") or {}
+        return {
+            "type": "evaluator_feedback",
+            "grade": ev_obj.get("grade"),
+            "feedback": ev_obj.get("feedback"),
+            "iteration": out.get("iteration"),
+            "accepted": out.get("accepted"),
+        }
+    if etype == "on_chain_end" and node_name == "LangGraph":
+        out = (ev.get("data") or {}).get("output") or {}
+        if isinstance(out, dict):
+            final_state_ref.update(out)
+    return None
+
+
 async def _stream_combo(thread_id: str, message: str):
     sess = _combo_sessions.get(thread_id)
     if sess is None:
@@ -1280,6 +1047,7 @@ async def _stream_combo(thread_id: str, message: str):
         return
 
     graph = sess["graph"]
+    gateway: Optional[ComboGateway] = sess.get("gateway")
     pattern = sess["pattern"]
     cfg = {"configurable": {"thread_id": thread_id}}
 
@@ -1290,76 +1058,52 @@ async def _stream_combo(thread_id: str, message: str):
     finished_nodes: set = set()
     final_state: Dict[str, Any] = {}
 
-    try:
-        async for ev in graph.astream_events(
-            {"user_input": message}, config=cfg, version="v2"
-        ):
-            etype = ev.get("event", "")
-            node_name = _combo_extract_node_name(ev)
+    bus: asyncio.Queue = asyncio.Queue(maxsize=1024)
+    if gateway is not None:
+        gateway.attach_bus(bus)
 
-            if etype == "on_chain_start" and node_name in burger_node_ids and node_name not in started_nodes:
-                started_nodes.add(node_name)
-                yield _sse({
-                    "type": "combo_burger_start",
-                    "node_id": node_name,
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and node_name in burger_node_ids and node_name not in finished_nodes:
-                finished_nodes.add(node_name)
-                # 尝试从 data.output 中取 burger_outputs
-                data = ev.get("data") or {}
-                out = data.get("output") or {}
-                reply = ""
-                if isinstance(out, dict):
-                    bo = out.get("burger_outputs") or {}
-                    reply = bo.get(node_name, "") if isinstance(
-                        bo, dict) else ""
-                yield _sse({
-                    "type": "combo_burger_end",
-                    "node_id": node_name,
-                    "output": reply[:2000] if isinstance(reply, str) else "",
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and node_name == "_router":
-                data = ev.get("data") or {}
-                out = data.get("output") or {}
-                yield _sse({
-                    "type": "router_decision",
-                    "route": out.get("route_decision"),
-                    "why": out.get("route_justification"),
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and node_name == "_orchestrator":
-                data = ev.get("data") or {}
-                out = data.get("output") or {}
-                yield _sse({
-                    "type": "work_plan",
-                    "sections": out.get("work_plan") or [],
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and node_name == "_evaluator":
-                data = ev.get("data") or {}
-                out = data.get("output") or {}
-                ev_obj = out.get("evaluation") or {}
-                yield _sse({
-                    "type": "evaluator_feedback",
-                    "grade": ev_obj.get("grade"),
-                    "feedback": ev_obj.get("feedback"),
-                    "iteration": out.get("iteration"),
-                    "accepted": out.get("accepted"),
-                })
-                await asyncio.sleep(0)
-            elif etype == "on_chain_end" and node_name == "LangGraph":
-                data = ev.get("data") or {}
-                out = data.get("output") or {}
-                if isinstance(out, dict):
-                    final_state = out
+    _EOF = object()
+
+    async def _outer_pump():
+        try:
+            async for ev in graph.astream_events(
+                {"user_input": message}, config=cfg, version="v2"
+            ):
+                payload = _serialize_outer_event(
+                    ev, sess, burger_node_ids, started_nodes, finished_nodes, final_state
+                )
+                if payload is not None:
+                    await bus.put(("outer", payload))
+        except Exception as e:  # 把异常一并扔进总线
+            import traceback
+            traceback.print_exc()
+            await bus.put(("error", {"type": "error", "detail": str(e)}))
+        finally:
+            await bus.put(_EOF)
+
+    outer_task = asyncio.create_task(_outer_pump())
+
+    try:
+        while True:
+            item = await bus.get()
+            if item is _EOF:
+                break
+            # 子 Agent 事件：AgentEvent(combo_burger_event)
+            if isinstance(item, AgentEvent):
+                yield _sse(item.to_dict())
+            elif isinstance(item, tuple):
+                tag, payload = item
+                if tag in ("outer", "error"):
+                    yield _sse(payload)
+            await asyncio.sleep(0)
 
         # 结束：读取最终 state
         try:
             snap = graph.get_state(cfg)
             if snap and snap.values:
-                final_state = snap.values
+                # 不要覆盖已写入的 final_output
+                for k, v in snap.values.items():
+                    final_state.setdefault(k, v)
         except Exception:
             pass
 
@@ -1369,10 +1113,15 @@ async def _stream_combo(thread_id: str, message: str):
             "output": final_output,
             "trace_len": len(final_state.get("combo_trace") or []),
         })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        yield _sse({"type": "error", "detail": str(e)})
+    finally:
+        if gateway is not None:
+            gateway.detach_bus()
+        if not outer_task.done():
+            outer_task.cancel()
+            try:
+                await outer_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     yield _sse({"type": "done"})
 
@@ -1399,6 +1148,21 @@ def _collect_burger_node_ids(sess: Dict[str, Any]) -> set:
         g = (cfg.get("generator") or {})
         if g.get("node_id"):
             ids.add(g["node_id"])
+    elif pattern == "dynamic_routing":
+        for r in cfg.get("routes") or []:
+            if r.get("node_id"):
+                ids.add(r["node_id"])
+        fb = cfg.get("fallback") or {}
+        if fb.get("node_id"):
+            ids.add(fb["node_id"])
+    elif pattern == "supervisor":
+        for w in cfg.get("workers") or []:
+            if w.get("node_id"):
+                ids.add(w["node_id"])
+    elif pattern == "handoff":
+        for a in cfg.get("agents") or []:
+            if a.get("node_id"):
+                ids.add(a["node_id"])
     return ids
 
 

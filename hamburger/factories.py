@@ -19,7 +19,6 @@ from hamburger.ingredients.cheese import Cheese
 from hamburger.ingredients.meat import MeatPatty
 from hamburger.ingredients.vegetable import Vegetable
 from hamburger.ingredients.onion import Onion
-from hamburger.ingredients.chili import Chili
 
 
 # ============================================================
@@ -38,19 +37,20 @@ NodeFactory = Callable[[Dict[str, Any], Dict[str, Any]], Any]
 
 
 def _factory_top_bread(spec, ctx):
-    return TopBread()
+    # 若 BurgerAgent / compile_agent 在 ctx 中预注入了网关实例，复用同一对象，
+    # 这样图内节点和 Agent 的入站网关是同一个 TopBread。
+    return ctx.get("_top_bread") or TopBread()
 
 
 def _factory_bottom_bread(spec, ctx):
-    return BottomBread()
+    return ctx.get("_bottom_bread") or BottomBread()
 
 
 def _factory_cheese(spec, ctx):
     params = spec.get("params", {}) or {}
-    # 优先使用运行时 cheese_prompt，其次使用蓝图默认值
-    prompt = ctx.get("cheese_prompt") or params.get(
-        "default_prompt", "你是一个有用的智能助手")
-    return Cheese(prompt)
+    # I-4：显式 cheese_prompt > spec.params.default_prompt > AgentCard 拼装 > Cheese.DEFAULT
+    explicit = ctx.get("cheese_prompt") or params.get("default_prompt")
+    return Cheese(explicit, card=ctx.get("card"))
 
 
 def _factory_meat_patty(spec, ctx):
@@ -99,13 +99,26 @@ NODE_FACTORIES: Dict[str, NodeFactory] = {
     # 旧名保留，避免破坏现有外部调用
     "interrupt_gate": _factory_interrupt_gate,
     # 🧅 洋葱 = 条件路由 (add_conditional_edges)
+    #   I-2：支持 keyword / llm / ask_router 三种 mode。
+    #   参数优先级：spec.params.* > ctx.onion_*
     "onion": lambda spec, ctx: Onion(
         default=(spec.get("params") or {}).get("default", "chat"),
-    ),
-    # 🌶️ 辣椒 = state reducer 演示节点
-    "chili": lambda spec, ctx: Chili(
-        heat=(spec.get("params") or {}).get("heat", 1),
-        flavor=(spec.get("params") or {}).get("flavor", "spicy"),
+        mode=(spec.get("params") or {}).get("mode")
+            or ctx.get("onion_mode")
+            or "keyword",
+        intent_to_node=(
+            (spec.get("params") or {}).get("intent_to_node")
+            or ctx.get("onion_intent_to_node")
+            or {}
+        ),
+        rules=(spec.get("params") or {}).get("rules"),
+        llm=(spec.get("params") or {}).get("llm")
+            or ctx.get("onion_llm")
+            or ctx.get("llm"),
+        labels=(spec.get("params") or {}).get("labels")
+            or ctx.get("onion_labels"),
+        prompt=(spec.get("params") or {}).get("prompt")
+            or ctx.get("onion_prompt"),
     ),
 }
 

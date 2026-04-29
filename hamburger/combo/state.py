@@ -50,3 +50,14 @@ class ComboState(TypedDict, total=False):
 
     # 套餐级别追踪轨迹（前端时间轴可读）
     combo_trace: Annotated[List[Dict[str, Any]], operator.add]
+
+    # ↓↓↓ PR-C 新增：多 Agent 调度上下文
+    # 子 Agent handoff 请求：{"target": str, "reason": str, "carry": Any}
+    handoff_request: Optional[Dict[str, Any]]
+    # 当前正在运行 / 刚运行完的子 Agent node_id
+    active_agent: Optional[str]
+    # 本次套餐请求已访问过的 Agent（防止环）
+    visited_agents: Annotated[List[str], operator.add]
+
+    # PR-E：supervisor 指令 {"next": worker_id|"DONE", "instruction": str}
+    supervisor_directive: Optional[Dict[str, Any]]
