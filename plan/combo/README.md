@@ -8,15 +8,15 @@
 
 ## 阅读顺序
 
-| 顺序 | PR | 主题 |
-|---|---|---|
-| 1 | [PR-A](PR-A_agent_card.md) | `AgentCard` 数据结构 + builder 注入 |
-| 2 | [PR-B](PR-B_handoff_events.md) | `AgentEvent` 新 kind（handoff/delegate/ask_router）+ Onion/BottomBread 发射 |
-| 3 | [PR-C](PR-C_combo_gateway_skeleton.md) | `ComboGateway` 骨架 + `adapt()` 节点工厂 |
-| 4 | [PR-D](PR-D_dynamic_routing.md) | `dynamic_routing` 模式（Agent 自主路由） |
-| 5 | [PR-E](PR-E_supervisor.md) | `supervisor` 模式（监督者循环） |
-| 6 | [PR-F](PR-F_handoff_pattern.md) | `handoff` 模式（链式自由转交 + 环检测 + hop 上限） |
-| 7 | [PR-G](PR-G_sse_bubble.md) | SSE 子 Agent 事件冒泡（带 `combo_node_id` 前缀） |
+| 顺序 | PR                                     | 主题                                                                        |
+| ---- | -------------------------------------- | --------------------------------------------------------------------------- |
+| 1    | [PR-A](PR-A_agent_card.md)             | `AgentCard` 数据结构 + builder 注入                                         |
+| 2    | [PR-B](PR-B_handoff_events.md)         | `AgentEvent` 新 kind（handoff/delegate/ask_router）+ Onion/BottomBread 发射 |
+| 3    | [PR-C](PR-C_combo_gateway_skeleton.md) | `ComboGateway` 骨架 + `adapt()` 节点工厂                                    |
+| 4    | [PR-D](PR-D_dynamic_routing.md)        | `dynamic_routing` 模式（Agent 自主路由）                                    |
+| 5    | [PR-E](PR-E_supervisor.md)             | `supervisor` 模式（监督者循环）                                             |
+| 6    | [PR-F](PR-F_handoff_pattern.md)        | `handoff` 模式（链式自由转交 + 环检测 + hop 上限）                          |
+| 7    | [PR-G](PR-G_sse_bubble.md)             | SSE 子 Agent 事件冒泡（带 `combo_node_id` 前缀）                            |
 
 ## 验收标志（最终）
 

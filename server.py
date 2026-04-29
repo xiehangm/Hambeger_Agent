@@ -355,7 +355,8 @@ async def chat_burger(req: ChatRequest):
         return {"status": "interrupted", "thread_id": agent.thread_id,
                 "next": final.payload.get("next", []),
                 "pending": final.payload.get("pending", {})}
-    raise HTTPException(status_code=500, detail=final.payload.get("detail", "未知错误"))
+    raise HTTPException(
+        status_code=500, detail=final.payload.get("detail", "未知错误"))
 
 
 @app.post("/api/chat/stream")

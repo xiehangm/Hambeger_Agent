@@ -190,7 +190,8 @@ class BottomBread(HamburgerIngredient, OutboundGateway):
         last = messages[-1] if messages else None
         pending_tools: List[Dict[str, Any]] = []
         if isinstance(last, AIMessage):
-            pending_tools = self._serialize_tool_calls(getattr(last, "tool_calls", []) or [])
+            pending_tools = self._serialize_tool_calls(
+                getattr(last, "tool_calls", []) or [])
 
         if not pending_tools:
             return None

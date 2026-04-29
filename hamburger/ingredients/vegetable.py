@@ -47,8 +47,10 @@ class Vegetable(HamburgerIngredient):
         if not tool_calls:
             return {}
 
-        local_calls = [tc for tc in tool_calls if tc.get("name") not in self.remote_specs]
-        remote_calls = [tc for tc in tool_calls if tc.get("name") in self.remote_specs]
+        local_calls = [tc for tc in tool_calls if tc.get(
+            "name") not in self.remote_specs]
+        remote_calls = [tc for tc in tool_calls if tc.get(
+            "name") in self.remote_specs]
 
         out: Dict[str, Any] = {}
 
@@ -60,8 +62,10 @@ class Vegetable(HamburgerIngredient):
                 local_ai = AIMessage(
                     content=ai.content,
                     tool_calls=local_calls,
-                    additional_kwargs=copy.copy(getattr(ai, "additional_kwargs", {}) or {}),
-                    response_metadata=copy.copy(getattr(ai, "response_metadata", {}) or {}),
+                    additional_kwargs=copy.copy(
+                        getattr(ai, "additional_kwargs", {}) or {}),
+                    response_metadata=copy.copy(
+                        getattr(ai, "response_metadata", {}) or {}),
                     id=getattr(ai, "id", None),
                 )
                 local_state = {**state, "messages": msgs[:-1] + [local_ai]}
@@ -94,4 +98,3 @@ class Vegetable(HamburgerIngredient):
             out["pending_delegations"] = pending
 
         return out
-

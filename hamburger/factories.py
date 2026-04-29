@@ -104,8 +104,8 @@ NODE_FACTORIES: Dict[str, NodeFactory] = {
     "onion": lambda spec, ctx: Onion(
         default=(spec.get("params") or {}).get("default", "chat"),
         mode=(spec.get("params") or {}).get("mode")
-            or ctx.get("onion_mode")
-            or "keyword",
+        or ctx.get("onion_mode")
+        or "keyword",
         intent_to_node=(
             (spec.get("params") or {}).get("intent_to_node")
             or ctx.get("onion_intent_to_node")
@@ -113,12 +113,12 @@ NODE_FACTORIES: Dict[str, NodeFactory] = {
         ),
         rules=(spec.get("params") or {}).get("rules"),
         llm=(spec.get("params") or {}).get("llm")
-            or ctx.get("onion_llm")
-            or ctx.get("llm"),
+        or ctx.get("onion_llm")
+        or ctx.get("llm"),
         labels=(spec.get("params") or {}).get("labels")
-            or ctx.get("onion_labels"),
+        or ctx.get("onion_labels"),
         prompt=(spec.get("params") or {}).get("prompt")
-            or ctx.get("onion_prompt"),
+        or ctx.get("onion_prompt"),
     ),
 }
 

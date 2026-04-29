@@ -153,7 +153,8 @@ def compile_agent(
     caps = dict((recipe or {}).get("capabilities", {}) or {})
     card = AgentCard(
         node_id=card_node_id,
-        name=card_name or (recipe or {}).get("label", (recipe or {}).get("name", "agent")),
+        name=card_name or (recipe or {}).get(
+            "label", (recipe or {}).get("name", "agent")),
         description=card_description or (recipe or {}).get("description", ""),
         recipe_name=(recipe or {}).get("name", ""),
         capabilities=caps,
@@ -255,7 +256,8 @@ class HamburgerBuilder:
             sg.add_edge("meat_patty", "bottom_bread")
         sg.add_edge("bottom_bread", END)
 
-        graph = sg.compile(**({"checkpointer": checkpointer} if checkpointer else {}))
+        graph = sg.compile(
+            **({"checkpointer": checkpointer} if checkpointer else {}))
 
         # 轻量 recipe：让 BurgerAgent 知道 capabilities（比如是否启用 checkpointer）
         recipe: Recipe = get_recipe("tool_agent" if self._vegetable else "basic_chat") \

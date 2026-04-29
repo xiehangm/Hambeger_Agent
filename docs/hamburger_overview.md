@@ -9,14 +9,14 @@
 
 LangGraph 节点本身只是 `StateGraph` 上的函数，但实际写一个 Agent，反复出现的是几类**职责固定**的节点：
 
-| 食材 | 隐喻 | 真实职责 |
-|---|---|---|
-| 🍞 顶层面包 `TopBread` | 拿到食物 | 把外部 `AgentRequest` 翻译成图内 `HamburgerState`，注入 `input_text` / `messages` |
-| 🧀 芝士 `Cheese` | 风味 | 注入 `SystemMessage`（I-4 起可从 `AgentCard` 自动拼装） |
-| 🥩 肉饼 `MeatPatty` | 主菜 | 调 LLM；如绑定工具，返回 `tool_calls` |
-| 🥬 蔬菜 `Vegetable` | 配菜 | 执行工具调用（本地 `ToolNode` + I-3 远程 `RemoteTool` 委托） |
-| 🧅 洋葱 `Onion` | 分层 | 路由：意图分类 → 写入 `intent` / `handoff_target` / `ask_router_request` |
-| 🍞 底层面包 `BottomBread` | 出餐 | 把图内 raw 事件翻译成对外的 `AgentEvent`，捕获 `final` 文本与 `interrupt` |
+| 食材                     | 隐喻     | 真实职责                                                                          |
+| ------------------------ | -------- | --------------------------------------------------------------------------------- |
+| 🍞 顶层面包 `TopBread`    | 拿到食物 | 把外部 `AgentRequest` 翻译成图内 `HamburgerState`，注入 `input_text` / `messages` |
+| 🧀 芝士 `Cheese`          | 风味     | 注入 `SystemMessage`（I-4 起可从 `AgentCard` 自动拼装）                           |
+| 🥩 肉饼 `MeatPatty`       | 主菜     | 调 LLM；如绑定工具，返回 `tool_calls`                                             |
+| 🥬 蔬菜 `Vegetable`       | 配菜     | 执行工具调用（本地 `ToolNode` + I-3 远程 `RemoteTool` 委托）                      |
+| 🧅 洋葱 `Onion`           | 分层     | 路由：意图分类 → 写入 `intent` / `handoff_target` / `ask_router_request`          |
+| 🍞 底层面包 `BottomBread` | 出餐     | 把图内 raw 事件翻译成对外的 `AgentEvent`，捕获 `final` 文本与 `interrupt`         |
 
 「搭汉堡」=「把这些节点按某种顺序连成 `StateGraph`」。一份**配方**（recipe）就是一种合法搭法。
 
@@ -61,17 +61,17 @@ hamburger/
 
 `TypedDict(total=False)`，关键字段：
 
-| 字段 | 写入方 | 读取方 |
-|---|---|---|
-| `input_text` | TopBread | Onion / 自定义节点 |
-| `messages` | TopBread / Cheese / MeatPatty / Vegetable | LLM、ToolNode |
-| `output_text` | LangGraph 末端 | BottomBread.extract_final |
-| `tool_trace` | Vegetable | 前端时间线 |
-| `pending_approval` | MeatPatty（有审批时） | UI / interrupt 事件 |
-| `intent` | Onion | 条件路由边 |
-| `handoff_target` | Onion / 自定义 | ComboGateway（套餐内才生效） |
-| `ask_router_request` | Onion (mode=ask_router) | ComboGateway |
-| `pending_delegations` | Vegetable（含 RemoteTool 时） | BottomBread → ComboGateway |
+| 字段                  | 写入方                                    | 读取方                       |
+| --------------------- | ----------------------------------------- | ---------------------------- |
+| `input_text`          | TopBread                                  | Onion / 自定义节点           |
+| `messages`            | TopBread / Cheese / MeatPatty / Vegetable | LLM、ToolNode                |
+| `output_text`         | LangGraph 末端                            | BottomBread.extract_final    |
+| `tool_trace`          | Vegetable                                 | 前端时间线                   |
+| `pending_approval`    | MeatPatty（有审批时）                     | UI / interrupt 事件          |
+| `intent`              | Onion                                     | 条件路由边                   |
+| `handoff_target`      | Onion / 自定义                            | ComboGateway（套餐内才生效） |
+| `ask_router_request`  | Onion (mode=ask_router)                   | ComboGateway                 |
+| `pending_delegations` | Vegetable（含 RemoteTool 时）             | BottomBread → ComboGateway   |
 
 `messages` 用 `add_messages` reducer 累加；`pending_delegations` 用 `operator.add`。
 
@@ -226,10 +226,10 @@ self.tool_node    = ToolNode(local_tools)   # 仅本地工具
 
 `Onion(default, mode, ...)` 的 `mode`：
 
-| 模式 | 决策位置 | 写入字段 |
-|---|---|---|
-| `keyword` | 同步、无外部依赖。先尝试精确 label 匹配，再 word-boundary regex，再 substring，最后 default | `intent` (+ 可选 `handoff_target`) |
-| `llm` | `llm.invoke(prompt)`，把回答归约到 `labels` 列表内；不在表内则 default | `intent` |
+| 模式         | 决策位置                                                                                                               | 写入字段                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `keyword`    | 同步、无外部依赖。先尝试精确 label 匹配，再 word-boundary regex，再 substring，最后 default                            | `intent` (+ 可选 `handoff_target`)         |
+| `llm`        | `llm.invoke(prompt)`，把回答归约到 `labels` 列表内；不在表内则 default                                                 | `intent`                                   |
 | `ask_router` | 仅写 `ask_router_request={"hint","candidates"}`，**不决定 intent**；交由套餐父图的 `ComboGateway._route_with_llm()` 选 | `intent="_pending"` + `ask_router_request` |
 
 `router_chat` / `onion_router` 配方默认走 keyword；套餐里典型做法是把 Onion 设为 `ask_router`，让所有路由 LLM 调用集中到 ComboGateway，避免每个子 Agent 各跑一次小路由。
@@ -262,13 +262,13 @@ ComboState (外层 StateGraph)
 
 5 种 LangGraph 工作流模式（[hamburger/combo/patterns.py](../hamburger/combo/patterns.py)）：
 
-| 模式 | 拓扑 | 典型用途 |
-|---|---|---|
-| Prompt Chaining | 串联 | 分析→写作→润色 |
-| Routing | 分流 | 按意图发到不同 Agent |
-| Parallelization | 拼盘 | 多视角并行 + 聚合 |
-| Orchestrator-Worker | 主厨 + worker | LLM 动态拆任务 |
-| Evaluator-Optimizer | 生成-评委 | 带反馈重试 |
+| 模式                | 拓扑          | 典型用途             |
+| ------------------- | ------------- | -------------------- |
+| Prompt Chaining     | 串联          | 分析→写作→润色       |
+| Routing             | 分流          | 按意图发到不同 Agent |
+| Parallelization     | 拼盘          | 多视角并行 + 聚合    |
+| Orchestrator-Worker | 主厨 + worker | LLM 动态拆任务       |
+| Evaluator-Optimizer | 生成-评委     | 带反馈重试           |
 
 **事件冒泡**：`ComboGateway.adapt(node_id)` 把每个子 Agent 包成外层节点；`run_agent()` 内部 `async for ev in agent.stream(req)` 把事件转发到 `_emit(node_id, ev)`，并按 `kind` 做不同处理：
 - `final`：写回外层 `messages` 与 `combo_trace`；
@@ -311,13 +311,13 @@ asyncio.run(main())
 
 ## 10. 扩展指引
 
-| 想做的事 | 改哪里 |
-|---|---|
-| 新增一种食材 | `hamburger/ingredients/<name>.py` 继承 `HamburgerIngredient`；在 [factories.py](../hamburger/factories.py) `NODE_FACTORIES` 注册；如有新 state 字段 → [state.py](../hamburger/state.py) |
-| 新增一份配方 | [recipes.py](../hamburger/recipes.py) 加 dict，跑 `validate_structure()` 检查 |
-| 新增一种事件 | [gateway/contracts.py](../hamburger/gateway/contracts.py) 扩 `EventKind`；BottomBread 翻译；ComboGateway 看是否要拦截 |
-| 新增一种工作流模式 | [combo/patterns.py](../hamburger/combo/patterns.py) 加构图函数；前端套餐工坊配槽位 |
-| 接入 MCP 工具 | 走 [mcp_loader.py](../hamburger/mcp_loader.py)；详见 [mcp_integration.md](mcp_integration.md) |
+| 想做的事           | 改哪里                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 新增一种食材       | `hamburger/ingredients/<name>.py` 继承 `HamburgerIngredient`；在 [factories.py](../hamburger/factories.py) `NODE_FACTORIES` 注册；如有新 state 字段 → [state.py](../hamburger/state.py) |
+| 新增一份配方       | [recipes.py](../hamburger/recipes.py) 加 dict，跑 `validate_structure()` 检查                                                                                                           |
+| 新增一种事件       | [gateway/contracts.py](../hamburger/gateway/contracts.py) 扩 `EventKind`；BottomBread 翻译；ComboGateway 看是否要拦截                                                                   |
+| 新增一种工作流模式 | [combo/patterns.py](../hamburger/combo/patterns.py) 加构图函数；前端套餐工坊配槽位                                                                                                      |
+| 接入 MCP 工具      | 走 [mcp_loader.py](../hamburger/mcp_loader.py)；详见 [mcp_integration.md](mcp_integration.md)                                                                                           |
 
 ---
 

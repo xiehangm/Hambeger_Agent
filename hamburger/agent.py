@@ -47,7 +47,8 @@ class BurgerAgent:
         # 能力卡：不传则从 recipe 推导一个默认卡，保证 .card 总是可用
         self._card = card or AgentCard(
             node_id="agent",
-            name=(recipe or {}).get("label", (recipe or {}).get("name", "agent")),
+            name=(recipe or {}).get(
+                "label", (recipe or {}).get("name", "agent")),
             description=(recipe or {}).get("description", ""),
             recipe_name=(recipe or {}).get("name", ""),
             capabilities=dict(caps),
@@ -190,7 +191,8 @@ class BurgerAgent:
     def snapshot(self) -> Dict[str, Any]:
         cfg = {"configurable": {"thread_id": self._thread_id}}
         try:
-            snap = self._graph.get_state(cfg) if self._uses_checkpointer else None
+            snap = self._graph.get_state(
+                cfg) if self._uses_checkpointer else None
         except Exception:
             snap = None
         values = (snap.values if snap else {}) or {}

@@ -156,7 +156,8 @@ class ComboGateway:
             except Exception as exc:  # router 不可用不能阻断套餐
                 picked = None
                 last_kind = last_kind or "error"
-                last_payload = last_payload or {"detail": f"router_llm 失败: {exc}"}
+                last_payload = last_payload or {
+                    "detail": f"router_llm 失败: {exc}"}
             if picked:
                 handoff = {
                     "target": picked,
@@ -233,7 +234,8 @@ class ComboGateway:
             return None
         if self._router_llm_factory is None:
             return candidates[0]
-        desc = self.describe(only=candidates) or "\n".join(f"- {c}" for c in candidates)
+        desc = self.describe(only=candidates) or "\n".join(
+            f"- {c}" for c in candidates)
         prompt = (
             "你是 Agent 路由器，请从以下候选中选一个最适合处理输入的 node_id，"
             "只输出 node_id 字符串本身，不要其他解释。\n"
@@ -274,7 +276,8 @@ class ComboGateway:
             if input_template:
                 try:
                     text = input_template.format_map(
-                        {k: (v if v is not None else "") for k, v in state.items()}
+                        {k: (v if v is not None else "")
+                         for k, v in state.items()}
                     )
                 except Exception:
                     text = str(state.get(input_field) or "")
@@ -292,7 +295,8 @@ class ComboGateway:
             )
 
             reply = result["reply"]
-            messages_out: List[Any] = [AIMessage(content=reply or "", name=node_id)]
+            messages_out: List[Any] = [
+                AIMessage(content=reply or "", name=node_id)]
             # I-3：委托的远程工具调用结果 → ToolMessage 写回 combo messages
             for d in result.get("delegations") or []:
                 if not d.get("tool_call_id"):

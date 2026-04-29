@@ -26,7 +26,8 @@ from hamburger.combo.state import ComboState
 from hamburger.combo import patterns as _patterns
 
 
-PATTERN_KINDS = ("chain", "routing", "parallel", "orchestrator", "evaluator", "dynamic_routing", "supervisor", "handoff")
+PATTERN_KINDS = ("chain", "routing", "parallel", "orchestrator",
+                 "evaluator", "dynamic_routing", "supervisor", "handoff")
 
 
 # 类型：给定 burger_id 返回完整 BuildConfig dict（由 server.py 注入，负责落地持久化）
@@ -80,7 +81,8 @@ def compile_combo(
                 thread_id=f"combo_{node_id}_{uuid.uuid4().hex[:8]}",
                 card_node_id=node_id,
                 card_name=config.get("name") or recipe.get("label"),
-                card_description=config.get("description") or recipe.get("description", ""),
+                card_description=config.get(
+                    "description") or recipe.get("description", ""),
             )
             gw.register(agent)
             extra_meta = {"burger_id": burger_id, "agent_type": agent_type}

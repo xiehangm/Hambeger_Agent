@@ -52,11 +52,11 @@
 
 整套网关分三层：
 
-| 层级 | 角色 | 实现 |
-|---|---|---|
-| **协议层** | 数据契约 + 接口协议（无具体实现） | [hamburger/gateway/contracts.py](../hamburger/gateway/contracts.py) |
+| 层级              | 角色                                    | 实现                                                                                                                                                                  |
+| ----------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **协议层**        | 数据契约 + 接口协议（无具体实现）       | [hamburger/gateway/contracts.py](../hamburger/gateway/contracts.py)                                                                                                   |
 | **单 Agent 网关** | 把单个 LangGraph 包成对外的 BurgerAgent | [hamburger/ingredients/bread.py](../hamburger/ingredients/bread.py)（`TopBread` + `BottomBread`） + [hamburger/agent.py](../hamburger/agent.py)（`BurgerAgent` 门面） |
-| **套餐网关** | 多 Agent 注册表 + 调度 + 子事件冒泡总线 | [hamburger/combo/gateway.py](../hamburger/combo/gateway.py)（`ComboGateway`） |
+| **套餐网关**      | 多 Agent 注册表 + 调度 + 子事件冒泡总线 | [hamburger/combo/gateway.py](../hamburger/combo/gateway.py)（`ComboGateway`）                                                                                         |
 
 ---
 
@@ -93,17 +93,17 @@ class AgentEvent:
 
 `EventKind` 是一个 `Literal` 闭集：
 
-| kind | 用途 | 谁会消费 |
-|---|---|---|
-| `node` | 节点 start/end | 前端时间轴 |
-| `tool` | 工具 start/end | 前端工具调用气泡 |
-| `tool_plan` | 肉饼推出的 tool_calls 计划 | 前端预览 |
-| `intent` | 洋葱意图分类 | 前端 |
-| `token` | LLM token 流 | 前端打字机 |
-| `interrupt` | HITL 暂停 + pending payload | 前端审批面板 |
-| `final` | 最终回复 | 前端聊天气泡 |
-| `error` / `done` | 异常 / 流终止哨兵 | 前端 |
-| `handoff` / `delegate` / `ask_router` | **PR-B 套餐内部事件** | 仅套餐网关消费，**不外送前端** |
+| kind                                  | 用途                        | 谁会消费                       |
+| ------------------------------------- | --------------------------- | ------------------------------ |
+| `node`                                | 节点 start/end              | 前端时间轴                     |
+| `tool`                                | 工具 start/end              | 前端工具调用气泡               |
+| `tool_plan`                           | 肉饼推出的 tool_calls 计划  | 前端预览                       |
+| `intent`                              | 洋葱意图分类                | 前端                           |
+| `token`                               | LLM token 流                | 前端打字机                     |
+| `interrupt`                           | HITL 暂停 + pending payload | 前端审批面板                   |
+| `final`                               | 最终回复                    | 前端聊天气泡                   |
+| `error` / `done`                      | 异常 / 流终止哨兵           | 前端                           |
+| `handoff` / `delegate` / `ask_router` | **PR-B 套餐内部事件**       | 仅套餐网关消费，**不外送前端** |
 
 序列化协议固定为 `{"type": <kind>, **payload}`，前端可以零改动。
 
@@ -174,13 +174,13 @@ def prepare_input(self, req: AgentRequest) -> Optional[Dict[str, Any]]:
 
 把 `astream_events v2` 原始事件翻译成 `AgentEvent` 序列：
 
-| Raw 事件 | 输出 |
-|---|---|
-| `on_chain_start` + `name ∈ {top_bread, cheese, onion, meat, vegetable, pickle, bottom_bread}` | `node start` |
-| `on_chain_end` + 节点为 `onion` | `intent` + 可能的 `handoff` + `node end` |
-| `on_chain_end` + 节点为 `meat` 且有 tool_calls | `tool_plan` + `node end` |
-| `on_tool_start` / `on_tool_end` | `tool start/end` |
-| `on_chat_model_stream` | `token`（仅在有内容时） |
+| Raw 事件                                                                                      | 输出                                     |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `on_chain_start` + `name ∈ {top_bread, cheese, onion, meat, vegetable, pickle, bottom_bread}` | `node start`                             |
+| `on_chain_end` + 节点为 `onion`                                                               | `intent` + 可能的 `handoff` + `node end` |
+| `on_chain_end` + 节点为 `meat` 且有 tool_calls                                                | `tool_plan` + `node end`                 |
+| `on_tool_start` / `on_tool_end`                                                               | `tool start/end`                         |
+| `on_chat_model_stream`                                                                        | `token`（仅在有内容时）                  |
 
 **关键：** PR-B 在 `onion` 节点写入 `handoff_target` 字段时，BottomBread 会再发一条 `AgentEvent.handoff`。这条事件会被 `BurgerAgent.stream` 原样吐出，但单 Agent 的 SSE 链路里 server 会按白名单过滤掉（`SSE_PUBLIC_KINDS`），只有 `ComboGateway` 才会消费它。
 
@@ -429,14 +429,14 @@ _stream_combo:
 
 ## 8. 扩展点（如何接入新功能）
 
-| 我想…… | 改这里 | 不要改这里 |
-|---|---|---|
-| 新增一种前端事件类型（比如 `agent_thinking`） | `EventKind` + `AgentEvent` 工厂方法 + `BottomBread.handle_raw_event` | `BurgerAgent` / `ComboGateway` |
-| 把某种 raw 事件翻译规则改一下 | 仅 `BottomBread.handle_raw_event` | 其他任何地方 |
-| 新增一种套餐 pattern | 在 `hamburger/combo/patterns.py` 里加 `build_xxx`，复用传入的 `wrap` 工厂 | `ComboGateway`（`adapt` 已经够用） |
-| 新增 Agent 间的私有协议事件（例如 `propose_plan`） | `EventKind` + `AgentEvent.propose_plan` 工厂；`ComboGateway.run_agent` 里加分支拦截；不进 SSE 白名单 | 前端 / `BottomBread` |
-| 让某个内部事件**外送**到前端 | 从 `server.SSE_PUBLIC_KINDS` 取消该 kind 的过滤，或在 `_stream_combo` 把它翻成 `combo_*` 外层事件 | 直接修改协议层 |
-| 多 Agent 资源限流、超时 | `ComboGateway`（在 `run_agent` 包装 `asyncio.wait_for`、限流信号量） | 单 Agent 的 `BurgerAgent` |
+| 我想……                                             | 改这里                                                                                               | 不要改这里                         |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| 新增一种前端事件类型（比如 `agent_thinking`）      | `EventKind` + `AgentEvent` 工厂方法 + `BottomBread.handle_raw_event`                                 | `BurgerAgent` / `ComboGateway`     |
+| 把某种 raw 事件翻译规则改一下                      | 仅 `BottomBread.handle_raw_event`                                                                    | 其他任何地方                       |
+| 新增一种套餐 pattern                               | 在 `hamburger/combo/patterns.py` 里加 `build_xxx`，复用传入的 `wrap` 工厂                            | `ComboGateway`（`adapt` 已经够用） |
+| 新增 Agent 间的私有协议事件（例如 `propose_plan`） | `EventKind` + `AgentEvent.propose_plan` 工厂；`ComboGateway.run_agent` 里加分支拦截；不进 SSE 白名单 | 前端 / `BottomBread`               |
+| 让某个内部事件**外送**到前端                       | 从 `server.SSE_PUBLIC_KINDS` 取消该 kind 的过滤，或在 `_stream_combo` 把它翻成 `combo_*` 外层事件    | 直接修改协议层                     |
+| 多 Agent 资源限流、超时                            | `ComboGateway`（在 `run_agent` 包装 `asyncio.wait_for`、限流信号量）                                 | 单 Agent 的 `BurgerAgent`          |
 
 ---
 
