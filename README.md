@@ -156,7 +156,7 @@ LangGraph StateGraph
 - 配方编译：`hamburger/builder.py`
 - 节点工厂与条件路由：`hamburger/factories.py`
 - 配方注册表：`hamburger/recipes.py`
-- MCP 工具加载：`hamburger/mcp_loader.py`
+- MCP 工具集成：`hamburger/mcp/`（拆分为 catalog/manager/client/adapter/api 等子模块）
 - Web UI：`web/index.html`、`web/js/app.js`、`web/js/chat.js`
 
 ---
@@ -353,13 +353,16 @@ ZIP 里会包含：
 
 ### MCP 相关
 
-| 方法   | 路径                 | 说明                             |
-| ------ | -------------------- | -------------------------------- |
-| `GET`  | `/api/mcp/builtin`   | 获取内置 MCP 服务器摘要          |
-| `GET`  | `/api/mcp/installed` | 获取已安装服务器和已发现工具     |
-| `POST` | `/api/mcp/install`   | 安装一个 MCP 服务器              |
-| `POST` | `/api/mcp/uninstall` | 卸载一个 MCP 服务器              |
-| `POST` | `/api/mcp/discover`  | 启动子进程发现该服务器的工具列表 |
+| 方法   | 路径                                    | 说明                     |
+| ------ | --------------------------------------- | ------------------------ |
+| `GET`  | `/api/mcp/servers/builtin`              | 内置 + 自定义服务器目录  |
+| `GET`  | `/api/mcp/servers/installed`            | 已安装服务器及已发现工具 |
+| `POST` | `/api/mcp/servers/install`              | 安装服务器               |
+| `POST` | `/api/mcp/servers/uninstall`            | 卸载服务器               |
+| `POST` | `/api/mcp/servers/{server_id}/discover` | 启动子进程发现工具       |
+| `POST` | `/api/mcp/servers/custom`               | 注册自定义服务器         |
+| `GET`  | `/api/mcp/tools`                        | 已发现工具扩平池         |
+| `GET`  | `/api/tools/native`                     | 原生工具列表             |
 
 ### `/api/build` 请求示例
 
@@ -369,17 +372,20 @@ ZIP 里会包含：
   "meat_model": "qwen-plus",
   "vegetables": ["get_weather", "calculate_add"],
   "cli_tools": [],
-  "mcp_tools": [
-    {
-      "server_name": "filesystem",
-      "tool_name": "read_file"
-    }
-  ],
   "burger_layers": [
     { "type": "top_bread", "order": 0 },
     { "type": "onion", "order": 1 },
     { "type": "meat_patty", "order": 2 },
-    { "type": "lettuce", "order": 3 },
+    {
+      "type": "lettuce",
+      "order": 3,
+      "config": {
+        "tools": ["get_weather", "calculate_add"],
+        "mcp_tools": [
+          { "server_id": "filesystem", "tool_name": "read_file" }
+        ]
+      }
+    },
     { "type": "pickle", "order": 4 },
     { "type": "bottom_bread", "order": 5 }
   ],
@@ -420,12 +426,21 @@ Agent_hambeger/
 ├── server.py
 ├── example.py
 ├── docs/
-│   └── mcp_integration.md
+│   ├── mcp_integration.md
+│   └── mcp_module.md
 ├── hamburger/
 │   ├── __init__.py
 │   ├── builder.py
 │   ├── factories.py
-│   ├── mcp_loader.py
+│   ├── mcp/
+│   │   ├── __init__.py
+│   │   ├── types.py
+│   │   ├── catalog.py
+│   │   ├── store.py
+│   │   ├── client.py
+│   │   ├── manager.py
+│   │   ├── adapter.py
+│   │   └── api.py
 │   ├── recipes.py
 │   ├── state.py
 │   └── ingredients/
@@ -479,9 +494,9 @@ Agent_hambeger/
 
 如果要扩 MCP：
 
-- 改 `hamburger/mcp_loader.py`
+- 后端逻辑在 `hamburger/mcp/`（按职责拆分为 catalog/manager/client/adapter/api）
 - 前端面板逻辑在 `web/js/mcp_market.js`
-- 详细说明在 `docs/mcp_integration.md`
+- 详细说明：[`docs/mcp_integration.md`](docs/mcp_integration.md)、[`docs/mcp_module.md`](docs/mcp_module.md)
 
 ---
 

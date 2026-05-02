@@ -50,6 +50,10 @@
                 <button class="btn-ghost" id="btn-goto-combo" title="切换到汉堡套餐工坊" style="margin-right:8px;">
                     <span class="btn-emoji">🍱</span><span class="btn-label">套餐工坊</span>
                 </button>
+                <button class="btn-ghost" id="btn-mcp-market" title="MCP 工具市场" style="margin-right:8px;">
+                    <span class="btn-emoji">🔌</span><span class="btn-label">MCP 市场</span>
+                    <span class="mcp-tool-count-badge" id="mcp-tool-count" style="display:none"></span>
+                </button>
                 <button class="btn-ghost btn-clear" id="btn-clear" title="清空画布">
                     <span class="btn-emoji">🗑️</span><span class="btn-label">清空</span>
                 </button>
@@ -343,6 +347,26 @@
     <!-- Toast 通知 -->
     <div id="toast" class="toast"></div>
 
+    <!-- ===== MCP 工具市场面板 ===== -->
+    <div id="mcp-panel" class="mcp-panel" aria-hidden="true">
+        <div class="mcp-panel-header">
+            <h2>🔌 MCP 工具市场</h2>
+            <button class="mcp-panel-close" id="mcp-panel-close" type="button" aria-label="关闭">✕</button>
+        </div>
+        <div class="mcp-tabs">
+            <button class="mcp-tab-btn active" data-tab="builtin">📚 内置目录</button>
+            <button class="mcp-tab-btn" data-tab="installed">✅ 已安装</button>
+            <button class="mcp-btn mcp-btn-add-custom" id="mcp-add-custom" style="margin-left:auto">➕ 自定义</button>
+        </div>
+        <div id="mcp-tab-builtin" class="mcp-tab-content">
+            <input type="text" id="mcp-search-input" class="mcp-search-input" placeholder="搜索服务器..." />
+            <div id="mcp-builtin-list" class="mcp-server-list"></div>
+        </div>
+        <div id="mcp-tab-installed" class="mcp-tab-content" style="display:none">
+            <div id="mcp-installed-list" class="mcp-server-list"></div>
+        </div>
+    </div>
+
     <!-- ===== Scripts ===== -->
     <!-- PixiJS v7 (Global PIXI namespace) -->
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js"></script>
@@ -355,6 +379,7 @@
     <script src="js/codegen.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/combo.js"></script>
+    <script src="js/mcp_market.js"></script>
     <script src="js/app.js"></script>
 
 </body>

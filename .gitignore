@@ -38,3 +38,9 @@ plan/ingredients/I-1_remove_chili.md
 plan/ingredients/I-2_onion_gateway.md
 plan/ingredients/I-3_vegetable_delegate.md
 plan/ingredients/I-4_cheese_autoprompt.md
+plan/mcp/PR-1_backend_module.md
+plan/mcp/PR-2_server_decouple.md
+plan/mcp/PR-3_lettuce_config_schema.md
+plan/mcp/PR-4_frontend_market.md
+plan/mcp/PR-5_frontend_lettuce_panel.md
+plan/mcp/PR-6_docs_cleanup.md

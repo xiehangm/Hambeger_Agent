@@ -1,5 +1,5 @@
-/* =====================================================================
-   🍔 Burger Builder — Refactored Stylesheet
+﻿/* =====================================================================
+   馃崝 Burger Builder 鈥?Refactored Stylesheet
    Layout:  Topbar (sticky, primary CTA) + Left sidebar + Canvas + Right panel
    Fully responsive: desktop 3-column / tablet collapsible drawers / mobile sheets
    ===================================================================== */
@@ -107,7 +107,7 @@ h4 {
 }
 
 /* =====================================================================
-   TOP BAR — always visible, primary CTA lives here
+   TOP BAR 鈥?always visible, primary CTA lives here
    ===================================================================== */
 .app-topbar {
     height: var(--topbar-h);
@@ -311,7 +311,7 @@ h4 {
 }
 
 /* =====================================================================
-   APP BODY — 3 column layout
+   APP BODY 鈥?3 column layout
    ===================================================================== */
 .app-body {
     flex: 1 1 auto;
@@ -429,7 +429,7 @@ h4 {
 }
 
 .recipe-guide-wrap>summary::after {
-    content: '▾';
+    content: '鈻?;
     transition: transform var(--transition-fast);
     font-size: 0.8rem;
 }
@@ -567,7 +567,7 @@ h4 {
     transform: scale(1.2);
 }
 
-/* Sidebar close btn — only shown on drawer mode (mobile) */
+/* Sidebar close btn 鈥?only shown on drawer mode (mobile) */
 .sidebar-close {
     display: none;
     width: 36px;
@@ -654,7 +654,7 @@ h4 {
 }
 
 /* =====================================================================
-   RIGHT PANEL — desktop: 3rd column, mobile: slide-up sheet
+   RIGHT PANEL 鈥?desktop: 3rd column, mobile: slide-up sheet
    ===================================================================== */
 .right-panel {
     width: 0;
@@ -876,7 +876,7 @@ h4 {
 }
 
 .json-output:empty::before {
-    content: '// 搭建汉堡后点击"上菜"查看 JSON 数据';
+    content: '// 鎼缓姹夊牎鍚庣偣鍑?涓婅彍"鏌ョ湅 JSON 鏁版嵁';
     color: var(--text-muted);
     font-style: italic;
 }
@@ -991,7 +991,7 @@ h4 {
 }
 
 /* =====================================================================
-   RECIPE HINT — below canvas
+   RECIPE HINT 鈥?below canvas
    ===================================================================== */
 .recipe-hint {
     display: flex;
@@ -1230,7 +1230,7 @@ h4 {
 }
 
 /* =====================================================================
-   VIEW SWITCHING — Build <-> Chat
+   VIEW SWITCHING 鈥?Build <-> Chat
    ===================================================================== */
 #build-view {
     transition: opacity 0.4s ease, transform 0.4s ease;
@@ -2126,10 +2126,10 @@ h4 {
 }
 
 /* =====================================================================
-   RESPONSIVE — 3 breakpoints
+   RESPONSIVE 鈥?3 breakpoints
    ===================================================================== */
 
-/* ≤ 1200px — reduce padding */
+/* 鈮?1200px 鈥?reduce padding */
 @media (max-width: 1200px) {
     :root {
         --sidebar-w: clamp(240px, 24vw, 280px);
@@ -2141,7 +2141,7 @@ h4 {
     }
 }
 
-/* ≤ 960px — tablet: sidebar becomes drawer */
+/* 鈮?960px 鈥?tablet: sidebar becomes drawer */
 @media (max-width: 960px) {
     :root {
         --topbar-h: 60px;
@@ -2215,7 +2215,7 @@ h4 {
     }
 }
 
-/* ≤ 720px — mobile: everything condenses */
+/* 鈮?720px 鈥?mobile: everything condenses */
 @media (max-width: 720px) {
     :root {
         --topbar-h: 56px;
@@ -2346,7 +2346,7 @@ h4 {
     }
 }
 
-/* ≤ 420px — very small phones */
+/* 鈮?420px 鈥?very small phones */
 @media (max-width: 420px) {
     .brand-logo {
         font-size: 1.5rem;
@@ -2400,7 +2400,7 @@ h4 {
 
 /* Combo view styles appended below */
 /* ============================================================
-   🍱 汉堡套餐工坊 (Combo View) 样式
+   馃嵄 姹夊牎濂楅宸ュ潑 (Combo View) 鏍峰紡
    ============================================================ */
 .combo-view {
     display: flex;
@@ -2560,7 +2560,7 @@ h4 {
     border-radius: 8px;
 }
 
-/* --- 画布 --- */
+/* --- 鐢诲竷 --- */
 .combo-canvas-wrap {
     display: flex;
     flex-direction: column;
@@ -2738,7 +2738,7 @@ h4 {
     border-top: 1px dashed rgba(255, 255, 255, 0.1);
 }
 
-/* --- 右栏：套餐属�?--- */
+/* --- 鍙虫爮锛氬椁愬睘鎬?--- */
 .combo-props .prop-row {
     margin-bottom: 12px;
 }
@@ -2795,7 +2795,7 @@ h4 {
     font-size: 11px;
 }
 
-/* --- 底部聊天抽屉 --- */
+/* --- 搴曢儴鑱婂ぉ鎶藉眽 --- */
 .combo-chat-drawer {
     height: 340px;
     background: rgba(15, 15, 35, 0.88);
@@ -2899,3 +2899,356 @@ h4 {
     min-height: 36px;
     max-height: 120px;
 }
+
+/* ===== MCP 工具市场面板 ===== */
+.mcp-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 480px;
+    max-width: 92vw;
+    height: 100vh;
+    background: var(--bg-panel, #1c1f2a);
+    border-left: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+    z-index: 9000;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    color: var(--text-primary, #e8e8ea);
+}
+
+.mcp-panel.visible {
+    transform: translateX(0);
+}
+
+.mcp-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+}
+
+.mcp-panel-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mcp-panel-close {
+    background: transparent;
+    color: inherit;
+    border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.mcp-panel-close:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.mcp-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
+}
+
+.mcp-tab-btn {
+    background: transparent;
+    color: var(--text-secondary, #a8acb8);
+    border: 1px solid transparent;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.mcp-tab-btn.active {
+    background: rgba(99, 132, 255, 0.18);
+    color: var(--text-primary, #fff);
+    border-color: rgba(99, 132, 255, 0.4);
+}
+
+.mcp-tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+}
+
+.mcp-search-input {
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+    font-size: 13px;
+    outline: none;
+}
+
+.mcp-server-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mcp-server-card {
+    border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.1));
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.mcp-server-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.mcp-server-emoji {
+    font-size: 24px;
+    line-height: 1;
+}
+
+.mcp-server-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.mcp-server-name {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.mcp-server-id {
+    font-size: 11px;
+    color: var(--text-tertiary, #6b6f7a);
+    font-weight: normal;
+}
+
+.mcp-server-desc {
+    font-size: 12px;
+    color: var(--text-secondary, #a8acb8);
+    line-height: 1.4;
+}
+
+.mcp-source-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin-left: 6px;
+    font-weight: normal;
+}
+
+.mcp-source-custom {
+    background: rgba(255, 180, 80, 0.18);
+    color: #ffb450;
+}
+
+.mcp-server-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.mcp-btn {
+    background: rgba(99, 132, 255, 0.15);
+    color: #c7d4ff;
+    border: 1px solid rgba(99, 132, 255, 0.35);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+}
+
+.mcp-btn:hover:not(:disabled) {
+    background: rgba(99, 132, 255, 0.25);
+}
+
+.mcp-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mcp-btn-uninstall {
+    background: rgba(255, 100, 100, 0.12);
+    color: #ff8a8a;
+    border-color: rgba(255, 100, 100, 0.3);
+}
+
+.mcp-btn-uninstall:hover:not(:disabled) {
+    background: rgba(255, 100, 100, 0.22);
+}
+
+.mcp-btn-cancel {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary, #a8acb8);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mcp-badge-installed {
+    color: #5ad17b;
+    font-size: 12px;
+    padding: 4px 10px;
+    background: rgba(90, 209, 123, 0.12);
+    border-radius: 6px;
+    border: 1px solid rgba(90, 209, 123, 0.3);
+}
+
+.mcp-env-config {
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.mcp-env-item {
+    margin-bottom: 8px;
+}
+
+.mcp-env-item:last-child {
+    margin-bottom: 0;
+}
+
+.mcp-env-item label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary, #a8acb8);
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.mcp-env-item input {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+    background: rgba(0, 0, 0, 0.3);
+    color: inherit;
+    font-size: 12px;
+    outline: none;
+}
+
+.mcp-env-item input:focus {
+    border-color: rgba(99, 132, 255, 0.5);
+}
+
+.mcp-tools-list {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mcp-tool-item {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 6px;
+    font-size: 11px;
+    border-radius: 4px;
+}
+
+.mcp-tool-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.mcp-tool-name {
+    color: #c7d4ff;
+    font-weight: 500;
+}
+
+.mcp-tool-desc {
+    color: var(--text-tertiary, #6b6f7a);
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+.mcp-empty {
+    text-align: center;
+    color: var(--text-tertiary, #6b6f7a);
+    padding: 30px 10px;
+    font-size: 13px;
+}
+
+.mcp-loading {
+    text-align: center;
+    color: var(--text-secondary, #a8acb8);
+    padding: 30px 10px;
+    font-size: 13px;
+}
+
+.mcp-tool-count-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(99, 132, 255, 0.25);
+    color: #c7d4ff;
+    font-size: 11px;
+}
+
+/* 自定义服务器对话框 */
+.mcp-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.mcp-dialog {
+    background: var(--bg-panel, #1c1f2a);
+    border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    max-width: 420px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.mcp-dialog-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+.mcp-dialog-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mcp-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* ===== 生菜配置面板 - MCP 工具分组 ===== */
+.mcp-tool-groups { display: flex; flex-direction: column; gap: 10px; }
+.mcp-tool-group { border: 1px solid var(--border-glass, rgba(255,255,255,0.08)); border-radius: 6px; padding: 8px; background: rgba(255,255,255,0.02); }
+.mcp-tool-group-header { font-size: 12px; font-weight: 600; color: var(--text-secondary, #a8acb8); margin-bottom: 6px; }
+.mcp-tool-group .mcp-server-id { color: var(--text-tertiary, #6b6f7a); font-weight: normal; font-size: 10px; margin-left: 4px; }
+.mcp-empty-hint { padding: 12px; border: 1px dashed rgba(255,255,255,0.12); border-radius: 6px; font-size: 12px; color: var(--text-secondary, #a8acb8); text-align: center; }
+.mcp-empty-hint a { color: #c7d4ff; text-decoration: underline; cursor: pointer; }
+.tool-checkbox-group code { background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #c7d4ff; }
+.tool-checkbox-group .tool-desc { color: var(--text-tertiary, #6b6f7a); font-size: 11px; }

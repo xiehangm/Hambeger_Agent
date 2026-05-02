@@ -60,7 +60,7 @@ window.BurgerGame = window.BurgerGame || {};
             height: 24,
             configurable: true,
             category: 'filling',
-            defaultConfig: { tools: [] },
+            defaultConfig: { tools: [], mcp_tools: [] },
         },
         tomato: {
             id: 'tomato',

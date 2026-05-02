@@ -1,324 +1,226 @@
-# 🍔 Hamburger Agent — MCP 工具市场接入文档
+# 🔌 MCP 工具市场接入文档
+
+> 本文档描述 Hamburger Agent 当前实际运行的 MCP 集成方案。
+> 模块结构与运作流程详见 [mcp_module.md](mcp_module.md)。
 
 ## 📖 概述
 
-Hamburger Agent 现已集成 **MCP（Model Context Protocol）工具市场**，支持一键导入和使用来自不同平台的 MCP 工具服务器。生菜（Lettuce）层在接入工具时，可以直接从 MCP 市场中浏览、安装和使用各种工具，无需手动编写代码。
+**MCP（Model Context Protocol）** 是 Anthropic 提出的开放协议，标准化 AI 模型
+与外部工具/数据源的通信。Hamburger Agent 通过 `hamburger/mcp/` 包提供：
 
-### MCP 是什么？
+- 一个独立的 MCP 服务（与 Agent / Recipe / Burger 解耦）
+- 一个浏览/安装/卸载/发现工具的 Web 市场面板
+- 与生菜（Lettuce）组件的单一挂钩点：`lettuce.config.mcp_tools`
 
-MCP（Model Context Protocol）是 Anthropic 提出的开放协议，标准化了 AI 模型与外部工具/数据源之间的通信方式。通过 MCP，Agent 可以动态连接到各种工具服务器（如文件系统、数据库、搜索引擎、GitHub 等），实现即插即用的工具集成。
+## 🧩 独立性原则
 
----
+> MCP 模块只与生菜组件挂钩。
 
-## 🏗️ 架构设计
-
-```
-┌─────────────────────────────────────────────────┐
-│                  前端 (Web UI)                    │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ MCP 面板  │  │ 工具卡片  │  │ 安装/卸载交互  │  │
-│  └─────┬────┘  └─────┬────┘  └──────┬────────┘  │
-│        └──────────────┼──────────────┘           │
-│                       │ REST API                  │
-├───────────────────────┼──────────────────────────┤
-│                  后端 (FastAPI)                    │
-│  ┌────────────────────┼─────────────────────┐    │
-│  │       server.py (MCP API Routes)         │    │
-│  └────────┬───────────┼──────────┬──────────┘    │
-│           │           │          │                │
-│  ┌────────▼──────┐ ┌──▼──────────▼──┐            │
-│  │ mcp_registry  │ │  mcp_loader    │            │
-│  │ (注册中心客户端)│ │ (工具加载/转换) │            │
-│  └────────┬──────┘ └──┬─────────────┘            │
-│           │           │                          │
-│  ┌────────▼───────────▼──────────────────┐       │
-│  │    MCP Server (stdio/SSE 连接)         │       │
-│  │  Filesystem / GitHub / Search / DB...  │       │
-│  └───────────────────────────────────────┘       │
-└─────────────────────────────────────────────────┘
-```
-
-### 核心模块
-
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| **注册中心客户端** | `hamburger/mcp_registry.py` | 连接 MCP 官方注册中心 + Smithery 市场，搜索服务器 |
-| **工具加载器** | `hamburger/mcp_loader.py` | 管理 MCP 服务器生命周期，工具发现与 LangChain 转换 |
-| **API 路由** | `server.py` | 提供 REST API 给前端调用 |
-| **前端交互** | `web/js/mcp_market.js` | 工具市场面板 UI 交互 |
-| **样式** | `web/css/style.css` | MCP 面板相关 CSS |
-
----
-
-## 🔌 支持的 MCP 平台
-
-### 1. MCP 官方注册中心
-- **地址**: `https://registry.modelcontextprotocol.io`
-- **特点**: 官方维护，质量有保证
-- **API**: `/v0/servers` 搜索、`/v0/servers/{id}` 详情
-
-### 2. Smithery
-- **地址**: `https://registry.smithery.ai`
-- **特点**: 社区驱动的 MCP 服务器市场，工具更丰富
-- **API**: `/v1/servers` 搜索
-
-### 3. 内置热门服务器
-预置了 12 个常用的 MCP 服务器配置，无需搜索即可一键安装：
-
-| 服务器 | 分类 | 需要配置 | 说明 |
-|--------|------|----------|------|
-| 📁 Filesystem | 文件操作 | ❌ | 读写文件、浏览目录 |
-| 🐙 GitHub | 开发工具 | ✅ `GITHUB_PERSONAL_ACCESS_TOKEN` | 仓库/Issue/PR 管理 |
-| 🐘 PostgreSQL | 数据库 | ✅ `POSTGRES_CONNECTION_STRING` | 数据库查询 |
-| 🔍 Brave Search | 搜索 | ✅ `BRAVE_API_KEY` | 网页搜索 |
-| 📡 Fetch | 网络 | ❌ | HTTP 请求 |
-| 🧠 Memory | 记忆 | ❌ | 知识图谱 |
-| 🗄️ SQLite | 数据库 | ❌ | 轻量数据库 |
-| 🌐 Puppeteer | 浏览器 | ❌ | 浏览器自动化 |
-| 🤔 Sequential Thinking | 推理 | ❌ | 结构化思维链 |
-| 💬 Slack | 通讯 | ✅ `SLACK_BOT_TOKEN` 等 | 消息管理 |
-| 💾 Google Drive | 云存储 | ✅ OAuth 配置 | 文件管理 |
-| 🚨 Sentry | 监控 | ✅ `SENTRY_AUTH_TOKEN` | 错误追踪 |
-
----
+- `hamburger/mcp/` 包不依赖 Agent / Recipe / Burger 的任何具体实现
+- MCP 工具不再"全局自动注入"，必须由用户在生菜配置面板里**显式勾选**
+- 与原生工具走同一条挂载路径（`_resolve_tools` → `BaseTool` 列表）
 
 ## 🚀 快速使用
 
-### 步骤 1: 打开 MCP 工具市场
+### 步骤 1：打开 MCP 工具市场
 
-在 Hamburger Agent 主界面，点击侧边栏底部的 **「🔌 MCP 工具市场」** 按钮，右侧滑出 MCP 面板。
+主界面顶部点击 **「🔌 MCP 市场」** 按钮，右侧抽屉式面板滑出。
 
-### 步骤 2: 浏览与搜索
+### 步骤 2：浏览 / 安装
 
-MCP 面板包含三个标签页：
+面板有两个 tab：
 
-- **🧰 内置工具**: 预置的 12 个热门 MCP 服务器，支持本地搜索过滤
-- **🌐 注册中心**: 连接 MCP 官方注册中心和 Smithery 双源搜索
-- **✅ 已安装**: 查看已安装的服务器，发现其工具，或卸载
+- **📚 内置目录**：10 个预置 MCP 服务器，本地搜索过滤
+- **✅ 已安装**：查看已安装服务器，发现工具，或卸载
 
-### 步骤 3: 一键安装
+无需 env 的服务器：点 **「📥 一键安装」**
+需要 env 的服务器：点 **「⚙️ 配置安装」** → 填入 API Key → **「🚀 确认安装」**
 
-#### 无需配置的服务器
-点击 **「📥 一键安装」** 按钮，即刻完成安装。
+### 步骤 3：发现工具
 
-#### 需要环境变量的服务器
-1. 点击 **「⚙️ 配置安装」** 展开 env 配置区
-2. 填入所需的 API Key / Token
-3. 点击 **「🚀 确认安装」**
+切到「✅ 已安装」tab，点击服务器卡片上的 **「🔍 发现工具」**。后端启动子进程，
+通过 JSON-RPC `tools/list` 拉取工具清单并缓存。
 
-### 步骤 4: 发现工具
+### 步骤 4：在生菜里挂载工具
 
-安装后，在「已安装」标签页中点击 **「🔍 发现工具」**，系统会通过 MCP 协议连接服务器，自动列出所有可用工具及其参数。
+回到搭建画布，点击 **🥬 生菜** 层打开配置面板：
 
-### 步骤 5: 构建汉堡时自动加载
-
-当你构建汉堡并点击「上菜」时，所有已安装的 MCP 工具会自动注入到 Agent 的工具列表中，参与 ReAct 推理循环。
-
----
-
-## 📡 REST API 接口
-
-### 获取内置服务器列表
 ```
-GET /api/mcp/builtin
+┌── 🥬 生菜 · 工具挂载 ──────────────────────┐
+│ 🥗 原生工具                                  │
+│  [✓] calculate_add  · 加法计算器             │
+│  [ ] get_weather    · 天气查询               │
+│                                              │
+│ 🔌 MCP 工具（已发现）                         │
+│  📁 Filesystem (filesystem)                  │
+│   [✓] read_file   · Read file content        │
+│   [ ] write_file  · Write file               │
+│  🐙 GitHub (github)                          │
+│   [ ] create_issue · Create issue            │
+└──────────────────────────────────────────────┘
 ```
-**响应**:
+
+勾选要挂载的工具，写入 `layer.config.tools`（原生）和
+`layer.config.mcp_tools`（MCP）。
+
+### 步骤 5：上菜
+
+点击「🚀 上菜」。后端 `_resolve_tools(config)` 遍历所有生菜节点：
+
+1. `cfg.tools` 中的原生名 → 从 `AVAILABLE_TOOLS` 取
+2. `cfg.mcp_tools` 中的 `{server_id, tool_name}` 对 → 调
+   `mcp_pkg.build_tool(sid, tname)` 包装成 `StructuredTool`
+3. 未发现/未安装的工具会被静默跳过并打印
+   `[MCP] 跳过未发现/未安装的工具`，不会让汉堡构建失败
+
+## 🏗️ 内置服务器目录
+
+| ID                    | 服务器                | 需要环境变量                   | 说明               |
+| --------------------- | --------------------- | ------------------------------ | ------------------ |
+| `filesystem`          | 📁 Filesystem          | ❌                              | 读写文件、浏览目录 |
+| `github`              | 🐙 GitHub              | `GITHUB_PERSONAL_ACCESS_TOKEN` | 仓库/Issue/PR 管理 |
+| `postgres`            | 🐘 PostgreSQL          | `POSTGRES_CONNECTION_STRING`   | 数据库查询         |
+| `brave-search`        | 🔍 Brave Search        | `BRAVE_API_KEY`                | 网页搜索           |
+| `fetch`               | 📡 Fetch               | ❌                              | HTTP 请求          |
+| `memory`              | 🧠 Memory              | ❌                              | 知识图谱           |
+| `sqlite`              | 🗄️ SQLite              | ❌                              | 轻量数据库         |
+| `puppeteer`           | 🌐 Puppeteer           | ❌                              | 浏览器自动化       |
+| `sequential-thinking` | 🤔 Sequential Thinking | ❌                              | 结构化思维链       |
+| `slack`               | 💬 Slack               | `SLACK_BOT_TOKEN` 等           | 消息管理           |
+
+可通过 **「➕ 自定义」** 按钮或 `POST /api/mcp/servers/custom` 添加任意自定义
+服务器。
+
+## 📡 REST API
+
+所有 MCP 路由统一前缀 `/api/mcp/servers`（路由器在 `hamburger/mcp/api.py`）：
+
+| 方法 | 路径                                    | 说明                           |
+| ---- | --------------------------------------- | ------------------------------ |
+| GET  | `/api/mcp/servers/builtin`              | 内置 + 自定义服务器目录        |
+| GET  | `/api/mcp/servers/installed`            | 已安装服务器列表（含工具缓存） |
+| POST | `/api/mcp/servers/install`              | 安装 `{server_id, env_values}` |
+| POST | `/api/mcp/servers/uninstall`            | 卸载 `{server_id}`             |
+| POST | `/api/mcp/servers/{server_id}/discover` | 启动子进程发现工具             |
+| POST | `/api/mcp/servers/custom`               | 注册自定义服务器               |
+| GET  | `/api/mcp/tools`                        | 已发现工具扁平池（供生菜面板） |
+| GET  | `/api/tools/native`                     | 原生工具列表（供生菜面板）     |
+
+### 安装请求示例
+
+```bash
+curl -X POST http://localhost:8000/api/mcp/servers/install \
+  -H "Content-Type: application/json" \
+  -d '{"server_id":"github","env_values":{"GITHUB_PERSONAL_ACCESS_TOKEN":"ghp_xxx"}}'
+```
+
+### 工具发现响应示例
+
 ```json
 {
-  "servers": [
-    {
-      "name": "Filesystem",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "env": [],
-      "source": "builtin",
-      "description": "文件系统操作：读写文件、浏览目录",
-      "emoji": "📁",
-      "category": "文件操作"
-    }
-  ]
-}
-```
-
-### 获取热门服务器（带分类）
-```
-GET /api/mcp/popular
-```
-**响应**: 包含 `servers` 数组和 `categories` 字典
-
-### 获取已安装服务器
-```
-GET /api/mcp/installed
-```
-
-### 安装服务器
-```
-POST /api/mcp/install
-Body: {
-  "server_id": "github",
-  "env_values": {
-    "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxx"
-  }
-}
-```
-
-### 卸载服务器
-```
-POST /api/mcp/uninstall
-Body: { "server_id": "github" }
-```
-
-### 发现工具
-```
-POST /api/mcp/discover
-Body: { "server_id": "filesystem" }
-```
-**响应**:
-```json
-{
+  "success": true,
   "server_id": "filesystem",
   "tools": [
     {
       "name": "read_file",
       "description": "Read the contents of a file",
-      "input_schema": { "type": "object", "properties": { "path": { "type": "string" } } },
-      "server_name": "Filesystem",
-      "server_emoji": "📁"
+      "input_schema": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } }
+      }
     }
   ]
 }
 ```
 
-### 搜索注册中心
-```
-POST /api/mcp/search
-Body: { "query": "database", "limit": 20 }
-```
+## 💾 持久化
 
-### 添加自定义服务器
-```
-POST /api/mcp/custom
-Body: {
-  "server_id": "my-custom-mcp",
-  "name": "My Custom MCP",
-  "command": "python",
-  "args": ["-m", "my_mcp_server"],
-  "description": "自定义 MCP 服务器",
-  "emoji": "⚡"
+已安装的服务器持久化到 **`data/mcp/servers.json`**（原子写入：tempfile + os.replace）：
+
+```json
+{
+  "schema_version": 1,
+  "installed": {
+    "github": {
+      "server_id": "github",
+      "env_values": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxx" }
+    }
+  },
+  "custom_servers": {
+    "my-tool": {
+      "name": "My Tool",
+      "command": "python",
+      "args": ["-m", "my_tool_server"],
+      "description": "...",
+      "emoji": "⚡"
+    }
+  }
 }
 ```
 
----
+服务器启动时 `mcp_pkg.bootstrap()` 自动从该文件恢复状态。
 
-## 🔧 高级用法
+> ⚠️ 当前 `env_values` 以明文保存。如需在多用户部署中使用，请自行加上密钥管理。
 
-### 添加自定义 MCP 服务器
+## 🏷️ 工具命名
 
-如果你有自己的 MCP 服务器，可以通过以下方式添加：
-
-1. **前端**: 在「已安装」标签页点击「⚡ 添加自定义 MCP 服务器」
-2. **API**: 调用 `POST /api/mcp/custom`
-3. **代码**: 在 Python 中直接调用：
-
-```python
-from hamburger.mcp_loader import add_custom_server
-
-add_custom_server(
-    server_id="my-tool",
-    name="My Tool Server",
-    command="python",
-    args=["-m", "my_tool_server"],
-    env={"API_KEY": "xxx"},
-    description="我的自定义工具",
-    emoji="⚡",
-)
-```
-
-### 在构建汉堡时使用 MCP 工具
-
-MCP 工具在 `build_burger` 流程中自动集成：
-
-```python
-from hamburger.mcp_loader import get_all_langchain_tools
-
-# 获取所有已安装 MCP 服务器的 LangChain 工具
-mcp_tools = get_all_langchain_tools()
-
-# 这些工具会自动注入到 Agent 的 ReAct 循环中
-```
-
-### MCP 工具自动转换为 LangChain Tool
-
-系统会自动将 MCP 工具的 JSON Schema 转换为 Pydantic 模型，并创建 `StructuredTool`：
+挂载到 LangChain 后的工具名格式：
 
 ```
-MCP Tool Schema (JSON)  →  Pydantic Model  →  LangChain StructuredTool
+mcp__{server_id_safe}__{tool_name_safe}
 ```
 
-工具名称格式: `mcp_{ServerName}_{ToolName}`
+其中 `{*_safe}` 表示把 `-` / `.` 替换为 `_` 以满足 LangChain 工具名规范。
 
-例如：`mcp_Filesystem_read_file`、`mcp_GitHub_create_issue`
+例如：`mcp__filesystem__read_file`、`mcp__brave_search__brave_web_search`。
 
----
+## 🔄 跨面板事件
 
-## 📂 文件结构
+前端通过 `window.dispatchEvent` 广播两个事件：
+
+| 事件                    | 触发时机                 | 订阅方                     |
+| ----------------------- | ------------------------ | -------------------------- |
+| `mcp:installed-changed` | 安装 / 卸载 / 添加自定义 | （预留给未来扩展）         |
+| `mcp:tools-updated`     | 工具发现成功 / 卸载      | 生菜配置面板（自动重渲染） |
+
+## 📂 文件结构（精简）
 
 ```
-Agent_hambeger/
-├── hamburger/
-│   ├── mcp_registry.py          # MCP 注册中心客户端（搜索官方+Smithery）
-│   ├── mcp_loader.py            # MCP 工具加载器（安装/发现/转换LangChain）
-│   ├── builder.py               # 汉堡构建器（集成MCP工具到Agent）
-│   └── ingredients/
-│       └── vegetable.py         # 生菜层（工具挂载层）
-├── web/
-│   ├── index.html               # 主页（含MCP面板HTML）
-│   ├── js/
-│   │   └── mcp_market.js        # MCP市场前端交互控制器
-│   └── css/
-│       └── style.css            # 含MCP面板样式
-└── server.py                    # FastAPI后端（含MCP API路由）
+hamburger/mcp/
+  __init__.py     # 公共 API
+  types.py        # 数据类（MCPServerConfig / MCPToolInfo）
+  catalog.py      # 内置 + 自定义服务器目录
+  store.py        # data/mcp/servers.json 读写
+  client.py       # JSON-RPC over stdio 客户端
+  manager.py      # 安装/卸载/发现/工具池
+  adapter.py      # MCP Tool → LangChain StructuredTool
+  api.py          # FastAPI 路由
+
+web/
+  js/mcp_market.js   # 市场面板交互
+  index.html         # MCP 面板 HTML
+  css/style.css      # MCP 样式
+
+data/mcp/servers.json # 持久化
 ```
 
----
+## ⚠️ 运行环境
 
-## 🔑 环境变量配置
+- **Python ≥ 3.11**（FastAPI / Pydantic v2 / LangChain）
+- **Node.js ≥ 18**：大部分内置服务器通过 `npx` 运行
+- **网络**：首次 `npx -y @modelcontextprotocol/server-*` 会下载包
 
-以下 MCP 服务器需要配置 API Key：
+## 🛠️ 故障排查
 
-| 服务器 | 环境变量 | 获取方式 |
-|--------|----------|----------|
-| GitHub | `GITHUB_PERSONAL_ACCESS_TOKEN` | GitHub Settings → Developer Settings → Personal Access Tokens |
-| Brave Search | `BRAVE_API_KEY` | https://brave.com/search/api/ |
-| PostgreSQL | `POSTGRES_CONNECTION_STRING` | 你的数据库连接字符串 |
-| Slack | `SLACK_BOT_TOKEN` + `SLACK_TEAM_ID` | Slack API → Bot Tokens |
-| Sentry | `SENTRY_AUTH_TOKEN` | Sentry Settings → API Keys |
-| Google Drive | `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` | Google Cloud Console |
+| 现象                                   | 原因 / 解决                                                     |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `发现工具` 长时间无响应                | 服务器子进程启动失败 → 检查 Node.js 安装、查看后端控制台 stderr |
+| `安装失败: 未知服务器 ID`              | 该 ID 不在 builtin/custom 目录中                                |
+| 上菜后控制台 `跳过未发现/未安装的工具` | 生菜勾选了某 MCP 工具但服务器已被卸载 → 重新安装并发现          |
+| 重启后已安装服务器消失                 | 检查 `data/mcp/servers.json` 是否存在且可读写                   |
 
----
+## 📚 相关文档
 
-## ⚠️ 注意事项
-
-1. **Node.js 环境**: 大部分内置 MCP 服务器通过 `npx` 运行，需要系统安装 Node.js 18+
-2. **网络环境**: 搜索注册中心需要能访问外网（`registry.modelcontextprotocol.io`、`registry.smithery.ai`）
-3. **API Key 安全**: 环境变量仅在服务端内存中保存，不会持久化到磁盘
-4. **工具发现**: 工具发现通过 MCP 协议的 `tools/list` 方法实现，需要对应服务器能正常启动
-5. **并发限制**: 同时运行的 MCP 服务器数量建议不超过 5 个，避免资源竞争
-
----
-
-## 🛠️ 故障排除
-
-### Q: 点击「发现工具」没有结果？
-**A:** 可能原因：
-- 未安装 Node.js，`npx` 命令不可用 → 安装 Node.js 18+
-- MCP 服务器启动超时 → 检查网络，或服务器依赖是否完整
-- 环境变量未配置 → 先配置必要的 API Key
-
-### Q: 搜索注册中心提示连接失败？
-**A:** 可能原因：
-- 网络无法访问外网 → 配置代理
-- 注册中心服务暂时不可用 → 稍后重试
-
-### Q: 安装后工具没有生效？
-**A:** 确保在构建汉堡时 MCP 工具已被加载。检查后端日志中是否有 `[MCP] Loaded N MCP tools` 字样。
+- [mcp_module.md](mcp_module.md) — MCP 包内部模块结构与数据流
+- [hamburger_overview.md](hamburger_overview.md) — Hamburger 整体架构
+- [gateway_architecture.md](gateway_architecture.md) — Gateway 设计

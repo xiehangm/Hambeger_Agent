@@ -33,7 +33,7 @@ hamburger/
 ├── builder.py               # compile_recipe / compile_agent / HamburgerBuilder
 ├── agent.py                 # BurgerAgent 门面
 ├── registry.py              # 持久化已保存的汉堡蓝图（JSON）
-├── mcp_loader.py            # MCP 工具动态装载
+├── mcp/                      # MCP 工具集成包（catalog/manager/client/adapter/api）
 ├── ingredients/             # 食材实现
 │   ├── base.py              # HamburgerIngredient 抽象
 │   ├── bread.py             # TopBread + BottomBread（=单 Agent 网关）
@@ -317,7 +317,7 @@ asyncio.run(main())
 | 新增一份配方       | [recipes.py](../hamburger/recipes.py) 加 dict，跑 `validate_structure()` 检查                                                                                                           |
 | 新增一种事件       | [gateway/contracts.py](../hamburger/gateway/contracts.py) 扩 `EventKind`；BottomBread 翻译；ComboGateway 看是否要拦截                                                                   |
 | 新增一种工作流模式 | [combo/patterns.py](../hamburger/combo/patterns.py) 加构图函数；前端套餐工坊配槽位                                                                                                      |
-| 接入 MCP 工具      | 走 [mcp_loader.py](../hamburger/mcp_loader.py)；详见 [mcp_integration.md](mcp_integration.md)                                                                                           |
+| 接入 MCP 工具      | 走 [hamburger/mcp/](../hamburger/mcp/)；详见 [mcp_integration.md](mcp_integration.md) 与 [mcp_module.md](mcp_module.md)                                                                 |
 
 ---
 

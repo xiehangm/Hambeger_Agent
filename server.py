@@ -29,17 +29,9 @@ from hamburger.recipes import match_recipe, validate_structure
 from hamburger import registry as burger_registry
 from hamburger.combo import compile_combo, combo_registry, PATTERN_KINDS, ComboGateway
 from hamburger.gateway import AgentEvent
-from hamburger.mcp_loader import (
-    get_builtin_servers,
-    get_installed_servers,
-    install_server,
-    uninstall_server,
-    discover_tools,
-    create_langchain_tool,
-    create_cli_tool,
-    _installed_servers,
-    _discovered_tools_cache,
-)
+from hamburger import mcp as mcp_pkg
+from hamburger.mcp import mcp_router
+from hamburger.tools.cli import create_cli_tool
 
 # 读取环境变量
 load_dotenv()
@@ -106,17 +98,17 @@ class CLIToolDef(BaseModel):
     command: str
 
 
-class MCPToolRef(BaseModel):
-    server_name: str
-    tool_name: str
-
-
 class BuildConfig(BaseModel):
+    """构建一个汉堡 Agent 的请求体。
+
+    注意：MCP 工具不再靠顶层字段传递，而是从 ``burger_layers`` 中
+    生菜（lettuce）节点的 ``config.mcp_tools`` 读取。
+    """
+
     cheese_prompt: Optional[str] = "你是一个有用的智能助手"
     meat_model: str = "qwen-plus"
     vegetables: List[str] = []
     cli_tools: List[CLIToolDef] = []
-    mcp_tools: List[MCPToolRef] = []
     burger_layers: Optional[list] = None  # 食材层次列表，用于配方识别
     agent_type: Optional[str] = None      # 显式指定配方（优先于 burger_layers 匹配）
     thread_id: Optional[str] = None       # 若传入则复用该会话
@@ -132,40 +124,60 @@ class ResumeRequest(BaseModel):
     approved: bool = True
     note: Optional[str] = None
 
-# --- MCP 请求模型 ---
-
-
-class MCPInstallRequest(BaseModel):
-    server_id: str
-    env_values: Dict[str, str] = {}
-
-
-class MCPUninstallRequest(BaseModel):
-    server_id: str
-
-
-class MCPDiscoverRequest(BaseModel):
-    server_id: str
-
 
 # --- API 路由 ---
 def _resolve_tools(config: "BuildConfig") -> list:
-    """从 BuildConfig 解析出工具列表（原生 + CLI + MCP）。"""
-    selected_tools = [AVAILABLE_TOOLS[name]
-                      for name in config.vegetables if name in AVAILABLE_TOOLS]
+    """从 BuildConfig 解析出工具列表。
+
+    来源：
+      1. 顶层 ``vegetables``（原生工具名，向后兼容）
+      2. 顶层 ``cli_tools``（CLI 命令模板）
+      3. ``burger_layers`` 中 lettuce 节点的 ``config.tools`` / ``config.mcp_tools``
+    """
+    selected: list = []
+    seen_names: set[str] = set()
+
+    def _add(tool) -> None:
+        if tool is None:
+            return
+        name = getattr(tool, "name", None)
+        if name and name in seen_names:
+            return
+        if name:
+            seen_names.add(name)
+        selected.append(tool)
+
+    # 1) 顶层 vegetables
+    for name in config.vegetables:
+        if name in AVAILABLE_TOOLS:
+            _add(AVAILABLE_TOOLS[name])
+
+    # 2) 顶层 cli_tools
     for cli_def in config.cli_tools:
         if cli_def.name and cli_def.command:
-            selected_tools.append(
-                create_cli_tool(
-                    cli_def.name, cli_def.description, cli_def.command)
-            )
-    for mcp_ref in config.mcp_tools:
-        cached = _discovered_tools_cache.get(mcp_ref.server_name, [])
-        for tool_info in cached:
-            if tool_info.name == mcp_ref.tool_name:
-                selected_tools.append(create_langchain_tool(tool_info))
-                break
-    return selected_tools
+            _add(create_cli_tool(
+                cli_def.name, cli_def.description, cli_def.command))
+
+    # 3) 生菜节点内嵌配置
+    for layer in (config.burger_layers or []):
+        if layer.get("type") != "lettuce":
+            continue
+        cfg = layer.get("config") or {}
+        for native_name in (cfg.get("tools") or []):
+            if native_name in AVAILABLE_TOOLS:
+                _add(AVAILABLE_TOOLS[native_name])
+        for ref in (cfg.get("mcp_tools") or []):
+            sid = (ref or {}).get("server_id")
+            tname = (ref or {}).get("tool_name")
+            if not sid or not tname:
+                continue
+            tool = mcp_pkg.build_tool(sid, tname)
+            if tool is None:
+                print(f"[MCP] 跳过未发现/未安装的工具: {sid}::{tname}")
+                continue
+            _add(tool)
+
+    return selected
 
 
 def _resolve_recipe(config: "BuildConfig"):
@@ -252,44 +264,29 @@ async def list_recipes():
     """返回所有配方的摘要（前端从这里拉取，不再硬编码）。"""
     return {"recipes": [recipe_summary(r) for r in RECIPES]}
 
+
+@app.get("/api/tools/native")
+async def list_native_tools():
+    """返回后端注册的原生工具（供生菜面板勾选）。"""
+    out = []
+    for name, tool in AVAILABLE_TOOLS.items():
+        out.append({
+            "name": name,
+            "description": getattr(tool, "description", "") or "",
+        })
+    return {"tools": out}
+
+
 # ─────────────────────────────────────────────
-#  MCP API 路由
+#  MCP 路由（独立模块，由 hamburger.mcp 提供）
 # ─────────────────────────────────────────────
+app.include_router(mcp_router)
 
 
-@app.get("/api/mcp/builtin")
-async def mcp_list_builtin():
-    """返回所有内置 MCP 服务器列表（含安装状态）。"""
-    return {"servers": get_builtin_servers()}
-
-
-@app.get("/api/mcp/installed")
-async def mcp_list_installed():
-    """返回已安装的 MCP 服务器（含已发现工具）。"""
-    return {"servers": get_installed_servers()}
-
-
-@app.post("/api/mcp/install")
-async def mcp_install(req: MCPInstallRequest):
-    result = install_server(req.server_id, req.env_values)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.post("/api/mcp/uninstall")
-async def mcp_uninstall(req: MCPUninstallRequest):
-    result = uninstall_server(req.server_id)
-    if not result["success"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.post("/api/mcp/discover")
-async def mcp_discover(req: MCPDiscoverRequest):
-    """启动 MCP 子进程发现工具列表（可能耗时，IO-bound）。"""
-    result = await discover_tools(req.server_id)
-    return result
+@app.on_event("startup")
+def _bootstrap_mcp() -> None:
+    """启动时从 data/mcp/servers.json 恢复已安装的 MCP 服务器。"""
+    mcp_pkg.bootstrap()
 
 
 def _get_session(thread_id: Optional[str]) -> Dict[str, Any]:

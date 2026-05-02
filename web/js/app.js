@@ -11,6 +11,12 @@ window.BurgerGame = window.BurgerGame || {};
     let mode = 'free';            // 'free' | 'recipe'
     let selectedRecipeName = null;
 
+    // 当前生菜配置面板指向的 layer（用于 mcp:tools-updated 事件刷新）
+    let currentLettuceLayer = null;
+    // 工具池缓存
+    let _nativeToolsCache = null;
+    let _mcpToolsCache = null;
+
     // =========================================================
     //  初始化
     // =========================================================
@@ -314,43 +320,154 @@ window.BurgerGame = window.BurgerGame || {};
         }
 
         if (meta.id === 'lettuce') {
-            const tools = [
-                { value: 'calculate_add', label: '🧮 加法计算器 (Calculator)' },
-                { value: 'get_weather', label: '🌤️ 天气查询 (Weather API)' },
-                { value: 'tavily_search', label: '🔍 Tavily 联网搜索 (Web Search)' },
-            ];
-            const checksHtml = tools
-                .map((t) => {
-                    const checked = (layer.config.tools || []).includes(t.value) ? 'checked' : '';
-                    return `<label><input type="checkbox" value="${t.value}" ${checked}> ${t.label}</label>`;
-                })
-                .join('');
-            content.innerHTML = `
-                <div class="prop-group">
-                    <label>工具挂载 (Tools)</label>
-                    <div class="tool-checkbox-group" id="prop-lettuce-tools">${checksHtml}</div>
-                </div>`;
-            setTimeout(() => {
-                const group = document.getElementById('prop-lettuce-tools');
-                group.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-                    cb.addEventListener('change', () => {
-                        const checked = [];
-                        group.querySelectorAll('input[type="checkbox"]:checked').forEach((c) => {
-                            checked.push(c.value);
-                        });
-                        layer.config.tools = checked;
-                    });
-                });
-            }, 10);
+            currentLettuceLayer = layer;
+            renderLettuceConfig(content, layer);
         }
 
         panel.style.display = 'block';
     }
 
+    // =========================================================
+    //  生菜配置：原生工具 + MCP 工具分组
+    // =========================================================
+    async function renderLettuceConfig(content, layer) {
+        const cfg = layer.config = layer.config || {};
+        cfg.tools = Array.isArray(cfg.tools) ? cfg.tools : [];
+        cfg.mcp_tools = Array.isArray(cfg.mcp_tools) ? cfg.mcp_tools : [];
+
+        content.innerHTML = `
+            <div class="prop-group">
+                <label>🥗 原生工具</label>
+                <div class="tool-checkbox-group" id="prop-native-tools">
+                    <div style="color:var(--text-muted);font-size:12px;">加载中...</div>
+                </div>
+            </div>
+            <div class="prop-group">
+                <label>🔌 MCP 工具（已发现）</label>
+                <div class="mcp-tool-groups" id="prop-mcp-tools">
+                    <div style="color:var(--text-muted);font-size:12px;">加载中...</div>
+                </div>
+            </div>`;
+
+        try {
+            const [nativeRes, mcpRes] = await Promise.all([
+                fetch('/api/tools/native').then((r) => r.json()),
+                fetch('/api/mcp/tools').then((r) => r.json()),
+            ]);
+            _nativeToolsCache = nativeRes.tools || [];
+            _mcpToolsCache = mcpRes.tools || [];
+        } catch (err) {
+            console.error('[Lettuce] 加载工具列表失败', err);
+            _nativeToolsCache = _nativeToolsCache || [];
+            _mcpToolsCache = _mcpToolsCache || [];
+        }
+
+        // 原生工具
+        const nativeBox = document.getElementById('prop-native-tools');
+        if (nativeBox) {
+            if (_nativeToolsCache.length === 0) {
+                nativeBox.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">无可用原生工具</div>';
+            } else {
+                nativeBox.innerHTML = _nativeToolsCache.map((t) => {
+                    const checked = cfg.tools.includes(t.name) ? 'checked' : '';
+                    const desc = t.description ? `<span class="tool-desc"> · ${escapeHtml(t.description)}</span>` : '';
+                    return `<label><input type="checkbox" data-name="${escapeAttr(t.name)}" ${checked}> <code>${escapeHtml(t.name)}</code>${desc}</label>`;
+                }).join('');
+                nativeBox.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+                    cb.addEventListener('change', () => {
+                        const set = new Set(cfg.tools);
+                        if (cb.checked) set.add(cb.dataset.name); else set.delete(cb.dataset.name);
+                        cfg.tools = Array.from(set);
+                    });
+                });
+            }
+        }
+
+        // MCP 工具按 server_id 分组
+        const mcpBox = document.getElementById('prop-mcp-tools');
+        if (mcpBox) {
+            if (_mcpToolsCache.length === 0) {
+                mcpBox.innerHTML = `
+                    <div class="mcp-empty-hint">
+                        尚未发现任何 MCP 工具。<br>
+                        <a href="#" id="prop-open-mcp-market">🔌 前往 MCP 工具市场</a> 安装并发现工具。
+                    </div>`;
+                const link = document.getElementById('prop-open-mcp-market');
+                if (link) {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        if (BurgerGame.MCPMarket) BurgerGame.MCPMarket.togglePanel();
+                    });
+                }
+            } else {
+                // 分组
+                const groups = {};
+                _mcpToolsCache.forEach((t) => {
+                    if (!groups[t.server_id]) groups[t.server_id] = {
+                        emoji: t.server_emoji || '🔌',
+                        name: t.server_name || t.server_id,
+                        tools: [],
+                    };
+                    groups[t.server_id].tools.push(t);
+                });
+                const selectedKey = (sid, tname) => `${sid}::${tname}`;
+                const selectedSet = new Set(
+                    cfg.mcp_tools.map((m) => selectedKey(m.server_id, m.tool_name))
+                );
+                mcpBox.innerHTML = Object.keys(groups).map((sid) => {
+                    const g = groups[sid];
+                    const items = g.tools.map((t) => {
+                        const key = selectedKey(sid, t.tool_name);
+                        const checked = selectedSet.has(key) ? 'checked' : '';
+                        const desc = t.description ? `<span class="tool-desc"> · ${escapeHtml(t.description)}</span>` : '';
+                        return `<label><input type="checkbox" data-sid="${escapeAttr(sid)}" data-tname="${escapeAttr(t.tool_name)}" ${checked}> <code>${escapeHtml(t.tool_name)}</code>${desc}</label>`;
+                    }).join('');
+                    return `<div class="mcp-tool-group">
+                        <div class="mcp-tool-group-header">${g.emoji} ${escapeHtml(g.name)} <span class="mcp-server-id">(${escapeHtml(sid)})</span></div>
+                        <div class="tool-checkbox-group">${items}</div>
+                    </div>`;
+                }).join('');
+                mcpBox.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+                    cb.addEventListener('change', () => {
+                        const sid = cb.dataset.sid;
+                        const tname = cb.dataset.tname;
+                        const key = selectedKey(sid, tname);
+                        const map = new Map(
+                            cfg.mcp_tools.map((m) => [selectedKey(m.server_id, m.tool_name), m])
+                        );
+                        if (cb.checked) map.set(key, { server_id: sid, tool_name: tname });
+                        else map.delete(key);
+                        cfg.mcp_tools = Array.from(map.values());
+                    });
+                });
+            }
+        }
+    }
+
+    function escapeHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s == null ? '' : String(s);
+        return d.innerHTML;
+    }
+
+    function escapeAttr(s) {
+        return escapeHtml(s).replace(/"/g, '&quot;');
+    }
+
     function hidePropertyEditor() {
         const panel = document.getElementById('property-editor');
         panel.style.display = 'none';
+        currentLettuceLayer = null;
     }
+
+    // 跨面板事件：MCP 工具市场发现/卸载后刷新生菜配置
+    window.addEventListener('mcp:tools-updated', () => {
+        _mcpToolsCache = null; // 强制重拉
+        if (currentLettuceLayer) {
+            const content = document.getElementById('prop-content');
+            if (content) renderLettuceConfig(content, currentLettuceLayer);
+        }
+    });
 
     function bindRightPanelControls() {
         const closeBtn = document.getElementById('right-panel-close');
